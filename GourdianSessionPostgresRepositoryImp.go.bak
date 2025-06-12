@@ -1,0 +1,383 @@
+package gourdiansession
+
+// import (
+// 	"context"
+// 	"errors"
+// 	"time"
+
+// 	"github.com/google/uuid"
+// 	"github.com/gourdian25/gourdiansession/errs"
+// 	"gorm.io/gorm"
+// )
+
+// MigrateAndIndexSessionTable runs auto-migration for the session table.
+// Indexes are automatically created based on struct tags.
+// func MigrateAndIndexSessionTable(ctx context.Context, db *gorm.DB) error {
+// 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+// 		// AutoMigrate will create indexes based on the struct tags
+// 		if err := tx.AutoMigrate(&SessionType{}); err != nil {
+// 			return errs.RepositoryError("MigrateAndIndexSessionTable", err, "failed to auto-migrate session table")
+// 		}
+
+// 		log.Println("Session table migration completed successfully")
+// 		return nil
+// 	})
+// }
+
+// type SessionPostgresRepository struct {
+// 	db *gorm.DB
+// }
+
+// func NewSessionPostgresRepository(db *gorm.DB) SessionRepositoryInt {
+// 	return &SessionPostgresRepository{db: db}
+// }
+
+// func (r *SessionPostgresRepository) withTransaction(ctx context.Context, fn func(tx *gorm.DB) error) error {
+// 	tx := r.db.WithContext(ctx).Begin()
+// 	if tx.Error != nil {
+// 		return errs.RepositoryError("WithTransaction", tx.Error, "failed to begin transaction")
+// 	}
+
+// 	if err := fn(tx); err != nil {
+// 		tx.Rollback()
+// 		return err
+// 	}
+
+// 	if err := tx.Commit().Error; err != nil {
+// 		return errs.RepositoryError("WithTransaction", err, "failed to commit transaction")
+// 	}
+
+// 	return nil
+// }
+
+// // Session lifecycle methods
+
+// func (r *SessionPostgresRepository) CreateSession(ctx context.Context, session *SessionType) (*SessionType, error) {
+// 	var createdSession SessionType
+
+// 	err := r.withTransaction(ctx, func(tx *gorm.DB) error {
+// 		if err := tx.Create(session).Error; err != nil {
+// 			return errs.RepositoryError("CreateSession", err, "failed to create session")
+// 		}
+
+// 		if err := tx.First(&createdSession, "session_id = ?", session.SessionID).Error; err != nil {
+// 			return errs.RepositoryError("CreateSession", err, "failed to fetch created session")
+// 		}
+
+// 		return nil
+// 	})
+
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	return &createdSession, nil
+// }
+
+// func (r *SessionPostgresRepository) RevokeSessionByID(ctx context.Context, sessionID uuid.UUID) error {
+// 	return r.withTransaction(ctx, func(tx *gorm.DB) error {
+// 		result := tx.Model(&SessionType{}).
+// 			Where("session_id = ? AND status = ?", sessionID, SessionStatusActive).
+// 			Updates(map[string]interface{}{
+// 				"status":     SessionStatusRevoked,
+// 				"deleted_at": time.Now(),
+// 				"expires_at": time.Now(),
+// 				"updated_at": time.Now(),
+// 			})
+
+// 		if result.Error != nil {
+// 			return errs.RepositoryError("RevokeSessionByID", result.Error, "failed to revoke session")
+// 		}
+// 		if result.RowsAffected == 0 {
+// 			return errs.RepositoryError("RevokeSessionByID", errs.ErrNotFound, "session not found or already revoked")
+// 		}
+// 		return nil
+// 	})
+// }
+
+// func (r *SessionPostgresRepository) GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*SessionType, error) {
+// 	var session SessionType
+
+// 	if err := r.db.WithContext(ctx).
+// 		Where("session_id = ? AND status = ? AND deleted_at IS NULL", sessionID, SessionStatusActive).
+// 		First(&session).Error; err != nil {
+// 		if errors.Is(err, gorm.ErrRecordNotFound) {
+// 			return nil, errs.RepositoryError("GetSessionByID", errs.ErrNotFound, "session not found")
+// 		}
+// 		return nil, errs.RepositoryError("GetSessionByID", err, "failed to get session")
+// 	}
+
+// 	if time.Now().After(session.ExpiresAt) {
+// 		return nil, errs.RepositoryError("GetSessionByID", errs.ErrNotFound, "session expired")
+// 	}
+
+// 	return &session, nil
+// }
+
+// func (r *SessionPostgresRepository) UpdateSession(ctx context.Context, session *SessionType) (*SessionType, error) {
+// 	var updatedSession SessionType
+
+// 	err := r.withTransaction(ctx, func(tx *gorm.DB) error {
+// 		if err := tx.Model(session).
+// 			Where("session_id = ?", session.SessionID).
+// 			Updates(session).Error; err != nil {
+// 			return errs.RepositoryError("UpdateSession", err, "failed to update session")
+// 		}
+
+// 		if err := tx.First(&updatedSession, "session_id = ?", session.SessionID).Error; err != nil {
+// 			return errs.RepositoryError("UpdateSession", err, "failed to fetch updated session")
+// 		}
+
+// 		return nil
+// 	})
+
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	return &updatedSession, nil
+// }
+
+// func (r *SessionPostgresRepository) DeleteSession(ctx context.Context, sessionID uuid.UUID) error {
+// 	return r.withTransaction(ctx, func(tx *gorm.DB) error {
+// 		result := tx.Model(&SessionType{}).
+// 			Where("session_id = ?", sessionID).
+// 			Update("deleted_at", time.Now())
+
+// 		if result.Error != nil {
+// 			return errs.RepositoryError("DeleteSession", result.Error, "failed to delete session")
+// 		}
+// 		if result.RowsAffected == 0 {
+// 			return errs.RepositoryError("DeleteSession", errs.ErrNotFound, "session not found")
+// 		}
+// 		return nil
+// 	})
+// }
+
+// func (r *SessionPostgresRepository) GetSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*SessionType, error) {
+// 	var sessions []*SessionType
+
+// 	if err := r.db.WithContext(ctx).
+// 		Where("user_id = ? AND deleted_at IS NULL", userID).
+// 		Find(&sessions).Error; err != nil {
+// 		return nil, errs.RepositoryError("GetSessionsByUserID", err, "failed to get sessions")
+// 	}
+
+// 	return sessions, nil
+// }
+
+// func (r *SessionPostgresRepository) GetActiveSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*SessionType, error) {
+// 	var sessions []*SessionType
+
+// 	if err := r.db.WithContext(ctx).
+// 		Where("user_id = ? AND status = ? AND deleted_at IS NULL", userID, SessionStatusActive).
+// 		Find(&sessions).Error; err != nil {
+// 		return nil, errs.RepositoryError("GetActiveSessionsByUserID", err, "failed to get active sessions")
+// 	}
+
+// 	// Filter out expired sessions
+// 	var activeSessions []*SessionType
+// 	now := time.Now()
+// 	for _, session := range sessions {
+// 		if session.ExpiresAt.After(now) {
+// 			activeSessions = append(activeSessions, session)
+// 		}
+// 	}
+
+// 	return activeSessions, nil
+// }
+
+// func (r *SessionPostgresRepository) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error {
+// 	return r.withTransaction(ctx, func(tx *gorm.DB) error {
+// 		result := tx.Model(&SessionType{}).
+// 			Where("user_id = ? AND status = ?", userID, SessionStatusActive).
+// 			Updates(map[string]interface{}{
+// 				"status":     SessionStatusRevoked,
+// 				"deleted_at": time.Now(),
+// 				"expires_at": time.Now(),
+// 				"updated_at": time.Now(),
+// 			})
+
+// 		if result.Error != nil {
+// 			return errs.RepositoryError("RevokeUserSessions", result.Error, "failed to revoke user sessions")
+// 		}
+// 		return nil
+// 	})
+// }
+
+// func (r *SessionPostgresRepository) RevokeSessionsExcept(ctx context.Context, userID, exceptSessionID uuid.UUID) error {
+// 	return r.withTransaction(ctx, func(tx *gorm.DB) error {
+// 		result := tx.Model(&SessionType{}).
+// 			Where("user_id = ? AND status = ? AND session_id != ?", userID, SessionStatusActive, exceptSessionID).
+// 			Updates(map[string]interface{}{
+// 				"status":     SessionStatusRevoked,
+// 				"deleted_at": time.Now(),
+// 				"expires_at": time.Now(),
+// 				"updated_at": time.Now(),
+// 			})
+
+// 		if result.Error != nil {
+// 			return errs.RepositoryError("RevokeSessionsExcept", result.Error, "failed to revoke sessions")
+// 		}
+// 		return nil
+// 	})
+// }
+
+// func (r *SessionPostgresRepository) ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) error {
+// 	return r.withTransaction(ctx, func(tx *gorm.DB) error {
+// 		result := tx.Model(&SessionType{}).
+// 			Where("session_id = ? AND status = ?", sessionID, SessionStatusActive).
+// 			Updates(map[string]interface{}{
+// 				"expires_at": time.Now().Add(duration),
+// 				"updated_at": time.Now(),
+// 			})
+
+// 		if result.Error != nil {
+// 			return errs.RepositoryError("ExtendSession", result.Error, "failed to extend session")
+// 		}
+// 		if result.RowsAffected == 0 {
+// 			return errs.RepositoryError("ExtendSession", errs.ErrNotFound, "session not found or not active")
+// 		}
+// 		return nil
+// 	})
+// }
+
+// func (r *SessionPostgresRepository) UpdateSessionActivity(ctx context.Context, sessionID uuid.UUID) error {
+// 	return r.withTransaction(ctx, func(tx *gorm.DB) error {
+// 		result := tx.Model(&SessionType{}).
+// 			Where("session_id = ? AND status = ?", sessionID, SessionStatusActive).
+// 			Update("last_activity", time.Now())
+
+// 		if result.Error != nil {
+// 			return errs.RepositoryError("UpdateSessionActivity", result.Error, "failed to update session activity")
+// 		}
+// 		if result.RowsAffected == 0 {
+// 			return errs.RepositoryError("UpdateSessionActivity", errs.ErrNotFound, "session not found or not active")
+// 		}
+// 		return nil
+// 	})
+// }
+
+// func (r *SessionPostgresRepository) ValidateSessionByID(ctx context.Context, sessionID uuid.UUID) (*SessionType, error) {
+// 	session, err := r.GetSessionByID(ctx, sessionID)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	if session.Status != SessionStatusActive {
+// 		return nil, errs.RepositoryError("ValidateSessionByID", errs.ErrInvalidSession, "session not active")
+// 	}
+
+// 	if time.Now().After(session.ExpiresAt) {
+// 		return nil, errs.RepositoryError("ValidateSessionByID", errs.ErrInvalidSession, "session expired")
+// 	}
+
+// 	return session, nil
+// }
+
+// func (r *SessionPostgresRepository) ValidateSessionByIDIPUA(ctx context.Context, sessionID uuid.UUID, ipAddress, userAgent string) (*SessionType, error) {
+// 	session, err := r.GetSessionByID(ctx, sessionID)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	if session.Status != SessionStatusActive {
+// 		return nil, errs.RepositoryError("ValidateSessionByIDIPUA", errs.ErrInvalidSession, "session not active")
+// 	}
+
+// 	if time.Now().After(session.ExpiresAt) {
+// 		return nil, errs.RepositoryError("ValidateSessionByIDIPUA", errs.ErrInvalidSession, "session expired")
+// 	}
+
+// 	if session.IPAddress != nil && *session.IPAddress != ipAddress {
+// 		return nil, errs.RepositoryError("ValidateSessionByIDIPUA", errs.ErrInvalidSession, "IP address mismatch")
+// 	}
+
+// 	if session.UserAgent != nil && *session.UserAgent != userAgent {
+// 		return nil, errs.RepositoryError("ValidateSessionByIDIPUA", errs.ErrInvalidSession, "user agent mismatch")
+// 	}
+
+// 	return session, nil
+// }
+
+// // Session data methods
+
+// func (r *SessionPostgresRepository) SetSessionData(ctx context.Context, sessionID uuid.UUID, key string, value interface{}) error {
+// 	// In a real implementation, this would store data in a separate session_data table
+// 	// For this example, we'll update the TempData field which is runtime-only
+// 	return r.withTransaction(ctx, func(tx *gorm.DB) error {
+// 		var session SessionType
+// 		if err := tx.First(&session, "session_id = ?", sessionID).Error; err != nil {
+// 			return errs.RepositoryError("SetSessionData", err, "session not found")
+// 		}
+
+// 		if session.TempData == nil {
+// 			session.TempData = &map[string]interface{}{}
+// 		}
+// 		(*session.TempData)[key] = value
+
+// 		if err := tx.Model(&session).Update("temp_data", session.TempData).Error; err != nil {
+// 			return errs.RepositoryError("SetSessionData", err, "failed to update session data")
+// 		}
+
+// 		return nil
+// 	})
+// }
+
+// func (r *SessionPostgresRepository) GetSessionData(ctx context.Context, sessionID uuid.UUID, key string) (interface{}, error) {
+// 	var session SessionType
+// 	if err := r.db.WithContext(ctx).
+// 		First(&session, "session_id = ?", sessionID).Error; err != nil {
+// 		return nil, errs.RepositoryError("GetSessionData", err, "session not found")
+// 	}
+
+// 	if session.TempData == nil {
+// 		return nil, errs.RepositoryError("GetSessionData", errs.ErrNotFound, "data not found")
+// 	}
+
+// 	value, exists := (*session.TempData)[key]
+// 	if !exists {
+// 		return nil, errs.RepositoryError("GetSessionData", errs.ErrNotFound, "data not found")
+// 	}
+
+// 	return value, nil
+// }
+
+// func (r *SessionPostgresRepository) DeleteSessionData(ctx context.Context, sessionID uuid.UUID, key string) error {
+// 	return r.withTransaction(ctx, func(tx *gorm.DB) error {
+// 		var session SessionType
+// 		if err := tx.First(&session, "session_id = ?", sessionID).Error; err != nil {
+// 			return errs.RepositoryError("DeleteSessionData", err, "session not found")
+// 		}
+
+// 		if session.TempData == nil {
+// 			return nil
+// 		}
+
+// 		delete(*session.TempData, key)
+
+// 		if err := tx.Model(&session).Update("temp_data", session.TempData).Error; err != nil {
+// 			return errs.RepositoryError("DeleteSessionData", err, "failed to update session data")
+// 		}
+
+// 		return nil
+// 	})
+// }
+
+// // Temporary data methods (would typically use Redis or similar in production)
+
+// func (r *SessionPostgresRepository) SetTemporaryData(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+// 	// In a real implementation, this would use Redis or similar
+// 	// For this example, we'll just store it in memory (not persistent)
+// 	return errs.RepositoryError("SetTemporaryData", errs.ErrNotImplemented, "temporary data storage not implemented")
+// }
+
+// func (r *SessionPostgresRepository) GetTemporaryData(ctx context.Context, key string) (interface{}, error) {
+// 	// In a real implementation, this would use Redis or similar
+// 	return nil, errs.RepositoryError("GetTemporaryData", errs.ErrNotImplemented, "temporary data storage not implemented")
+// }
+
+// func (r *SessionPostgresRepository) DeleteTemporaryData(ctx context.Context, key string) error {
+// 	// In a real implementation, this would use Redis or similar
+// 	return errs.RepositoryError("DeleteTemporaryData", errs.ErrNotImplemented, "temporary data storage not implemented")
+// }
