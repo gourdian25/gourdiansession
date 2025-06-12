@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (55.2%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (56.3%)</option>
 				
 				</select>
 			</div>
@@ -263,14 +263,14 @@ func (r *GurdianRedisSessionRepository) CreateSession(ctx context.Context, sessi
         <span class="cov8" title="1">return session, nil</span>
 }
 
-func (r *GurdianRedisSessionRepository) RevokeSessionByID(ctx context.Context, sessionID uuid.UUID) error <span class="cov0" title="0">{
+func (r *GurdianRedisSessionRepository) RevokeSessionByID(ctx context.Context, sessionID uuid.UUID) error <span class="cov8" title="1">{
         session, err := r.GetSessionByID(ctx, sessionID)
-        if err != nil </span><span class="cov0" title="0">{
+        if err != nil </span><span class="cov8" title="1">{
                 return err
         }</span>
 
-        <span class="cov0" title="0">session.Status = SessionStatusRevoked
-        session.ExpiresAt = time.Now()
+        <span class="cov8" title="1">session.Status = SessionStatusRevoked
+        session.ExpiresAt = time.Now().Add(1 * time.Minute)
 
         _, err = r.UpdateSession(ctx, session)
         return err</span>
@@ -364,9 +364,9 @@ func (r *GurdianRedisSessionRepository) GetSessionsByUserID(ctx context.Context,
                         continue</span>
                 }
 
-                <span class="cov8" title="1">session, err := r.GetSessionByID(ctx, sessionID)
-                if err != nil </span><span class="cov8" title="1">{
-                        if errors.Is(err, ErrNotFound) </span><span class="cov8" title="1">{
+                <span class="cov8" title="1">sessionJSON, err := r.client.Get(ctx, r.sessionKey(sessionID)).Result()
+                if err != nil </span><span class="cov0" title="0">{
+                        if errors.Is(err, redis.Nil) </span><span class="cov0" title="0">{
                                 // Clean up stale session reference
                                 _ = r.client.SRem(ctx, r.userSessionsKey(userID), sessionIDStr)
                                 continue</span>
@@ -374,7 +374,13 @@ func (r *GurdianRedisSessionRepository) GetSessionsByUserID(ctx context.Context,
                         <span class="cov0" title="0">return nil, fmt.Errorf("failed to get session %s: %w", sessionID, err)</span>
                 }
 
-                <span class="cov8" title="1">sessions = append(sessions, session)</span>
+                <span class="cov8" title="1">var session GourdianSessionType
+                err = json.Unmarshal([]byte(sessionJSON), &amp;session)
+                if err != nil </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("failed to unmarshal session: %w", err)
+                }</span>
+
+                <span class="cov8" title="1">sessions = append(sessions, &amp;session)</span>
         }
 
         <span class="cov8" title="1">return sessions, nil</span>

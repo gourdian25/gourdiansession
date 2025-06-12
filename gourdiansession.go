@@ -293,9 +293,9 @@ func (r *GurdianRedisSessionRepository) GetSessionsByUserID(ctx context.Context,
 			continue
 		}
 
-		session, err := r.GetSessionByID(ctx, sessionID)
+		sessionJSON, err := r.client.Get(ctx, r.sessionKey(sessionID)).Result()
 		if err != nil {
-			if errors.Is(err, ErrNotFound) {
+			if errors.Is(err, redis.Nil) {
 				// Clean up stale session reference
 				_ = r.client.SRem(ctx, r.userSessionsKey(userID), sessionIDStr)
 				continue
@@ -303,7 +303,13 @@ func (r *GurdianRedisSessionRepository) GetSessionsByUserID(ctx context.Context,
 			return nil, fmt.Errorf("failed to get session %s: %w", sessionID, err)
 		}
 
-		sessions = append(sessions, session)
+		var session GourdianSessionType
+		err = json.Unmarshal([]byte(sessionJSON), &session)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal session: %w", err)
+		}
+
+		sessions = append(sessions, &session)
 	}
 
 	return sessions, nil
