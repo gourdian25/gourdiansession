@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gourdian25/gourdiansession/errs"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -17,6 +18,14 @@ const (
 	SessionStatusActive  string = "active"
 	SessionStatusExpired string = "expired"
 	SessionStatusRevoked string = "revoked"
+)
+
+var (
+	ErrInvalidInput     = errors.New("invalid input")
+	ErrConflict         = errors.New("conflict")
+	ErrNotFound         = errors.New("not found")
+	ErrInvalidSession   = errors.New("invalid session")
+	ErrPermissionDenied = errors.New("permission denied")
 )
 
 // Role represents a role with its permissions in the session
@@ -152,22 +161,22 @@ func (r *GurdianRedisSessionRepository) tempDataKey(key string) string {
 
 func (r *GurdianRedisSessionRepository) CreateSession(ctx context.Context, session *GourdianSessionType) (*GourdianSessionType, error) {
 	if session == nil {
-		return nil, errs.RepositoryError("CreateSession", errs.ErrInvalidInput, "session cannot be nil")
+		return nil, fmt.Errorf("%w: session cannot be nil", ErrInvalidInput)
 	}
 
 	// Check if session already exists
 	exists, err := r.client.Exists(ctx, r.sessionKey(session.UUID)).Result()
 	if err != nil {
-		return nil, errs.RepositoryError("CreateSession", err, "failed to check session existence")
+		return nil, fmt.Errorf("failed to check session existence: %w", err)
 	}
 	if exists > 0 {
-		return nil, errs.RepositoryError("CreateSession", errs.ErrConflict, "session already exists")
+		return nil, fmt.Errorf("%w: session already exists", ErrConflict)
 	}
 
 	// Serialize session
 	sessionJSON, err := json.Marshal(session)
 	if err != nil {
-		return nil, errs.RepositoryError("CreateSession", err, "failed to marshal session")
+		return nil, fmt.Errorf("failed to marshal session: %w", err)
 	}
 
 	// Use transaction to ensure atomicity
@@ -178,7 +187,7 @@ func (r *GurdianRedisSessionRepository) CreateSession(ctx context.Context, sessi
 
 	_, err = pipe.Exec(ctx)
 	if err != nil {
-		return nil, errs.RepositoryError("CreateSession", err, "failed to store session in Redis")
+		return nil, fmt.Errorf("failed to store session in Redis: %w", err)
 	}
 
 	return session, nil
@@ -201,20 +210,20 @@ func (r *GurdianRedisSessionRepository) GetSessionByID(ctx context.Context, sess
 	sessionJSON, err := r.client.Get(ctx, r.sessionKey(sessionID)).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return nil, errs.RepositoryError("GetSessionByID", errs.ErrNotFound, "session not found")
+			return nil, fmt.Errorf("%w: session not found", ErrNotFound)
 		}
-		return nil, errs.RepositoryError("GetSessionByID", err, "failed to get session from Redis")
+		return nil, fmt.Errorf("failed to get session from Redis: %w", err)
 	}
 
 	var session GourdianSessionType
 	err = json.Unmarshal([]byte(sessionJSON), &session)
 	if err != nil {
-		return nil, errs.RepositoryError("GetSessionByID", err, "failed to unmarshal session")
+		return nil, fmt.Errorf("failed to unmarshal session: %w", err)
 	}
 
 	// Check if session is expired
 	if session.ExpiresAt.Before(time.Now()) {
-		return nil, errs.RepositoryError("GetSessionByID", errs.ErrNotFound, "session expired")
+		return nil, fmt.Errorf("%w: session expired", ErrNotFound)
 	}
 
 	return &session, nil
@@ -222,21 +231,21 @@ func (r *GurdianRedisSessionRepository) GetSessionByID(ctx context.Context, sess
 
 func (r *GurdianRedisSessionRepository) UpdateSession(ctx context.Context, session *GourdianSessionType) (*GourdianSessionType, error) {
 	if session == nil {
-		return nil, errs.RepositoryError("UpdateSession", errs.ErrInvalidInput, "session cannot be nil")
+		return nil, fmt.Errorf("%w: session cannot be nil", ErrInvalidInput)
 	}
 
 	// Check if session exists first
 	exists, err := r.client.Exists(ctx, r.sessionKey(session.UUID)).Result()
 	if err != nil {
-		return nil, errs.RepositoryError("UpdateSession", err, "failed to check session existence")
+		return nil, fmt.Errorf("failed to check session existence: %w", err)
 	}
 	if exists == 0 {
-		return nil, errs.RepositoryError("UpdateSession", errs.ErrNotFound, "session not found")
+		return nil, fmt.Errorf("%w: session not found", ErrNotFound)
 	}
 
 	sessionJSON, err := json.Marshal(session)
 	if err != nil {
-		return nil, errs.RepositoryError("UpdateSession", err, "failed to marshal session")
+		return nil, fmt.Errorf("failed to marshal session: %w", err)
 	}
 
 	ttl := time.Until(session.ExpiresAt)
@@ -246,7 +255,7 @@ func (r *GurdianRedisSessionRepository) UpdateSession(ctx context.Context, sessi
 
 	err = r.client.Set(ctx, r.sessionKey(session.UUID), sessionJSON, ttl).Err()
 	if err != nil {
-		return nil, errs.RepositoryError("UpdateSession", err, "failed to update session in Redis")
+		return nil, fmt.Errorf("failed to update session in Redis: %w", err)
 	}
 
 	return session, nil
@@ -265,7 +274,7 @@ func (r *GurdianRedisSessionRepository) DeleteSession(ctx context.Context, sessi
 
 	_, err = pipe.Exec(ctx)
 	if err != nil {
-		return errs.RepositoryError("DeleteSession", err, "failed to delete session from Redis")
+		return fmt.Errorf("failed to delete session from Redis: %w", err)
 	}
 
 	return nil
@@ -274,7 +283,7 @@ func (r *GurdianRedisSessionRepository) DeleteSession(ctx context.Context, sessi
 func (r *GurdianRedisSessionRepository) GetSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error) {
 	sessionIDs, err := r.client.SMembers(ctx, r.userSessionsKey(userID)).Result()
 	if err != nil {
-		return nil, errs.RepositoryError("GetSessionsByUserID", err, "failed to get user sessions from Redis")
+		return nil, fmt.Errorf("failed to get user sessions from Redis: %w", err)
 	}
 
 	var sessions []*GourdianSessionType
@@ -287,12 +296,12 @@ func (r *GurdianRedisSessionRepository) GetSessionsByUserID(ctx context.Context,
 
 		session, err := r.GetSessionByID(ctx, sessionID)
 		if err != nil {
-			if errors.Is(err, errs.ErrNotFound) {
+			if errors.Is(err, ErrNotFound) {
 				// Clean up stale session reference
 				_ = r.client.SRem(ctx, r.userSessionsKey(userID), sessionIDStr)
 				continue
 			}
-			return nil, errs.RepositoryError("GetSessionsByUserID", err, fmt.Sprintf("failed to get session %s", sessionID))
+			return nil, fmt.Errorf("failed to get session %s: %w", sessionID, err)
 		}
 
 		sessions = append(sessions, session)
@@ -364,7 +373,7 @@ func (r *GurdianRedisSessionRepository) ExtendSession(ctx context.Context, sessi
 	}
 
 	if session.Status != SessionStatusActive {
-		return errs.RepositoryError("ExtendSession", errs.ErrInvalidSession, "cannot extend inactive session")
+		return fmt.Errorf("%w: cannot extend inactive session", ErrInvalidSession)
 	}
 
 	session.ExpiresAt = time.Now().Add(duration)
@@ -390,13 +399,13 @@ func (r *GurdianRedisSessionRepository) ValidateSessionByID(ctx context.Context,
 	}
 
 	if session.Status != SessionStatusActive {
-		return nil, errs.RepositoryError("ValidateSessionByID", errs.ErrInvalidSession, "session is not active")
+		return nil, fmt.Errorf("%w: session is not active", ErrInvalidSession)
 	}
 
 	if session.ExpiresAt.Before(time.Now()) {
 		session.Status = SessionStatusExpired
 		_, _ = r.UpdateSession(ctx, session) // Best effort update
-		return nil, errs.RepositoryError("ValidateSessionByID", errs.ErrInvalidSession, "session has expired")
+		return nil, fmt.Errorf("%w: session has expired", ErrInvalidSession)
 	}
 
 	return session, nil
@@ -409,11 +418,11 @@ func (r *GurdianRedisSessionRepository) ValidateSessionByIDIPUA(ctx context.Cont
 	}
 
 	if session.IPAddress != nil && *session.IPAddress != ipAddress {
-		return nil, errs.RepositoryError("ValidateSessionByIDIPUA", errs.ErrInvalidSession, "IP address mismatch")
+		return nil, fmt.Errorf("%w: IP address mismatch", ErrInvalidSession)
 	}
 
 	if session.UserAgent != nil && *session.UserAgent != userAgent {
-		return nil, errs.RepositoryError("ValidateSessionByIDIPUA", errs.ErrInvalidSession, "user agent mismatch")
+		return nil, fmt.Errorf("%w: user agent mismatch", ErrInvalidSession)
 	}
 
 	return session, nil
@@ -428,7 +437,7 @@ func (r *GurdianRedisSessionRepository) SetSessionData(ctx context.Context, sess
 	dataKey := r.sessionDataKey(sessionID)
 	valueJSON, err := json.Marshal(value)
 	if err != nil {
-		return errs.RepositoryError("SetSessionData", err, "failed to marshal session data")
+		return fmt.Errorf("failed to marshal session data: %w", err)
 	}
 
 	session, err := r.GetSessionByID(ctx, sessionID)
@@ -438,18 +447,18 @@ func (r *GurdianRedisSessionRepository) SetSessionData(ctx context.Context, sess
 
 	err = r.client.HSet(ctx, dataKey, key, valueJSON).Err()
 	if err != nil {
-		return errs.RepositoryError("SetSessionData", err, "failed to set session data in Redis")
+		return fmt.Errorf("failed to set session data in Redis: %w", err)
 	}
 
 	// Set TTL on the hash if it doesn't exist yet
 	ttl, err := r.client.TTL(ctx, dataKey).Result()
 	if err != nil {
-		return errs.RepositoryError("SetSessionData", err, "failed to check TTL for session data")
+		return fmt.Errorf("failed to check TTL for session data: %w", err)
 	}
 	if ttl < 0 { // No TTL set
 		err = r.client.ExpireAt(ctx, dataKey, session.ExpiresAt).Err()
 		if err != nil {
-			return errs.RepositoryError("SetSessionData", err, "failed to set TTL for session data")
+			return fmt.Errorf("failed to set TTL for session data: %w", err)
 		}
 	}
 
@@ -465,15 +474,15 @@ func (r *GurdianRedisSessionRepository) GetSessionData(ctx context.Context, sess
 	valueJSON, err := r.client.HGet(ctx, r.sessionDataKey(sessionID), key).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return nil, errs.RepositoryError("GetSessionData", errs.ErrNotFound, "session data not found")
+			return nil, fmt.Errorf("%w: session data not found", ErrNotFound)
 		}
-		return nil, errs.RepositoryError("GetSessionData", err, "failed to get session data from Redis")
+		return nil, fmt.Errorf("failed to get session data from Redis: %w", err)
 	}
 
 	var value interface{}
 	err = json.Unmarshal([]byte(valueJSON), &value)
 	if err != nil {
-		return nil, errs.RepositoryError("GetSessionData", err, "failed to unmarshal session data")
+		return nil, fmt.Errorf("failed to unmarshal session data: %w", err)
 	}
 
 	return value, nil
@@ -487,7 +496,7 @@ func (r *GurdianRedisSessionRepository) DeleteSessionData(ctx context.Context, s
 
 	err = r.client.HDel(ctx, r.sessionDataKey(sessionID), key).Err()
 	if err != nil {
-		return errs.RepositoryError("DeleteSessionData", err, "failed to delete session data from Redis")
+		return fmt.Errorf("failed to delete session data from Redis: %w", err)
 	}
 
 	return nil
@@ -496,12 +505,12 @@ func (r *GurdianRedisSessionRepository) DeleteSessionData(ctx context.Context, s
 func (r *GurdianRedisSessionRepository) SetTemporaryData(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
 	valueJSON, err := json.Marshal(value)
 	if err != nil {
-		return errs.RepositoryError("SetTemporaryData", err, "failed to marshal temporary data")
+		return fmt.Errorf("failed to marshal temporary data: %w", err)
 	}
 
 	err = r.client.Set(ctx, r.tempDataKey(key), valueJSON, ttl).Err()
 	if err != nil {
-		return errs.RepositoryError("SetTemporaryData", err, "failed to set temporary data in Redis")
+		return fmt.Errorf("failed to set temporary data in Redis: %w", err)
 	}
 
 	return nil
@@ -511,15 +520,15 @@ func (r *GurdianRedisSessionRepository) GetTemporaryData(ctx context.Context, ke
 	valueJSON, err := r.client.Get(ctx, r.tempDataKey(key)).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return nil, errs.RepositoryError("GetTemporaryData", errs.ErrNotFound, "temporary data not found")
+			return nil, fmt.Errorf("%w: temporary data not found", ErrNotFound)
 		}
-		return nil, errs.RepositoryError("GetTemporaryData", err, "failed to get temporary data from Redis")
+		return nil, fmt.Errorf("failed to get temporary data from Redis: %w", err)
 	}
 
 	var value interface{}
 	err = json.Unmarshal([]byte(valueJSON), &value)
 	if err != nil {
-		return nil, errs.RepositoryError("GetTemporaryData", err, "failed to unmarshal temporary data")
+		return nil, fmt.Errorf("failed to unmarshal temporary data: %w", err)
 	}
 
 	return value, nil
@@ -528,7 +537,7 @@ func (r *GurdianRedisSessionRepository) GetTemporaryData(ctx context.Context, ke
 func (r *GurdianRedisSessionRepository) DeleteTemporaryData(ctx context.Context, key string) error {
 	err := r.client.Del(ctx, r.tempDataKey(key)).Err()
 	if err != nil {
-		return errs.RepositoryError("DeleteTemporaryData", err, "failed to delete temporary data from Redis")
+		return fmt.Errorf("failed to delete temporary data from Redis: %w", err)
 	}
 
 	return nil
