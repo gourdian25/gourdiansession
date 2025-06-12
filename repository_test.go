@@ -311,3 +311,615 @@ func TestRedisRepository_ValidateSession(t *testing.T) {
 		assert.Contains(t, err.Error(), "session has expired")
 	})
 }
+
+func TestRedisRepository_RevokeUserSessions(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	repo := NewGurdianRedisSessionRepository(client)
+	ctx := context.Background()
+
+	userID := uuid.New()
+
+	t.Run("revoke all sessions for user", func(t *testing.T) {
+		// Create 3 active sessions for the user
+		session1 := NewGurdianSessionObject(
+			userID,
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+		_, err := repo.CreateSession(ctx, session1)
+		require.NoError(t, err)
+
+		session2 := NewGurdianSessionObject(
+			userID,
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+		_, err = repo.CreateSession(ctx, session2)
+		require.NoError(t, err)
+
+		session3 := NewGurdianSessionObject(
+			userID,
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+		_, err = repo.CreateSession(ctx, session3)
+		require.NoError(t, err)
+
+		// Revoke all
+		err = repo.RevokeUserSessions(ctx, userID)
+		require.NoError(t, err)
+
+		// Verify all sessions are revoked
+		sessions, err := repo.GetSessionsByUserID(ctx, userID)
+		require.NoError(t, err)
+		for _, s := range sessions {
+			assert.Equal(t, SessionStatusRevoked, s.Status)
+		}
+	})
+
+	t.Run("revoke for user with no sessions", func(t *testing.T) {
+		err := repo.RevokeUserSessions(ctx, uuid.New())
+		require.NoError(t, err) // Should not error when no sessions exist
+	})
+}
+
+func TestRedisRepository_RevokeSessionsExcept(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	repo := NewGurdianRedisSessionRepository(client)
+	ctx := context.Background()
+
+	userID := uuid.New()
+
+	t.Run("revoke all except one", func(t *testing.T) {
+		// Create 3 sessions
+		session1 := NewGurdianSessionObject(
+			userID,
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+		_, err := repo.CreateSession(ctx, session1)
+		require.NoError(t, err)
+
+		session2 := NewGurdianSessionObject(
+			userID,
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+		_, err = repo.CreateSession(ctx, session2)
+		require.NoError(t, err)
+
+		session3 := NewGurdianSessionObject(
+			userID,
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+		_, err = repo.CreateSession(ctx, session3)
+		require.NoError(t, err)
+
+		// Revoke all except session2
+		err = repo.RevokeSessionsExcept(ctx, userID, session2.UUID)
+		require.NoError(t, err)
+
+		// Verify
+		sessions, err := repo.GetSessionsByUserID(ctx, userID)
+		require.NoError(t, err)
+		for _, s := range sessions {
+			if s.UUID == session2.UUID {
+				assert.Equal(t, SessionStatusActive, s.Status)
+			} else {
+				assert.Equal(t, SessionStatusRevoked, s.Status)
+			}
+		}
+	})
+
+	t.Run("except session doesn't exist", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			userID,
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		// Try to revoke all except non-existent session
+		err = repo.RevokeSessionsExcept(ctx, userID, uuid.New())
+		require.NoError(t, err) // Should still work, just revoke all
+
+		// Verify all sessions are revoked
+		sessions, err := repo.GetSessionsByUserID(ctx, userID)
+		require.NoError(t, err)
+		for _, s := range sessions {
+			assert.Equal(t, SessionStatusRevoked, s.Status)
+		}
+	})
+}
+
+func TestRedisRepository_UpdateSessionActivity(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	repo := NewGurdianRedisSessionRepository(client)
+	ctx := context.Background()
+
+	t.Run("update activity", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		originalActivity := session.LastActivity
+		time.Sleep(10 * time.Millisecond) // Ensure time advances
+
+		err = repo.UpdateSessionActivity(ctx, session.UUID)
+		require.NoError(t, err)
+
+		// Verify last activity was updated
+		updated, err := repo.GetSessionByID(ctx, session.UUID)
+		require.NoError(t, err)
+		assert.True(t, updated.LastActivity.After(originalActivity))
+	})
+
+	t.Run("update non-existent session", func(t *testing.T) {
+		err := repo.UpdateSessionActivity(ctx, uuid.New())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session not found")
+	})
+}
+
+func TestRedisRepository_ValidateSessionByIDIPUA(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	repo := NewGurdianRedisSessionRepository(client)
+	ctx := context.Background()
+
+	t.Run("successful validation with IP/UA", func(t *testing.T) {
+		ip := "192.168.1.1"
+		ua := "test-agent"
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			&ip,
+			&ua,
+			[]Role{},
+			30*time.Minute,
+		)
+
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		validated, err := repo.ValidateSessionByIDIPUA(ctx, session.UUID, ip, ua)
+		require.NoError(t, err)
+		assert.Equal(t, session.UUID, validated.UUID)
+	})
+
+	t.Run("IP mismatch", func(t *testing.T) {
+		ip := "192.168.1.1"
+		ua := "test-agent"
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			&ip,
+			&ua,
+			[]Role{},
+			30*time.Minute,
+		)
+
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		_, err = repo.ValidateSessionByIDIPUA(ctx, session.UUID, "10.0.0.1", ua)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "IP address mismatch")
+	})
+
+	t.Run("UA mismatch", func(t *testing.T) {
+		ip := "192.168.1.1"
+		ua := "test-agent"
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			&ip,
+			&ua,
+			[]Role{},
+			30*time.Minute,
+		)
+
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		_, err = repo.ValidateSessionByIDIPUA(ctx, session.UUID, ip, "different-agent")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "user agent mismatch")
+	})
+
+	t.Run("session without IP/UA tracking", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil, // No IP
+			nil, // No UA
+			[]Role{},
+			30*time.Minute,
+		)
+
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		// Should pass validation even with random IP/UA since session doesn't track them
+		validated, err := repo.ValidateSessionByIDIPUA(ctx, session.UUID, "1.2.3.4", "some-agent")
+		require.NoError(t, err)
+		assert.Equal(t, session.UUID, validated.UUID)
+	})
+}
+
+func TestRedisRepository_TemporaryDataOperations(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	repo := NewGurdianRedisSessionRepository(client)
+	ctx := context.Background()
+
+	t.Run("set and get temporary data", func(t *testing.T) {
+		err := repo.SetTemporaryData(ctx, "testkey", "testvalue", 1*time.Minute)
+		require.NoError(t, err)
+
+		val, err := repo.GetTemporaryData(ctx, "testkey")
+		require.NoError(t, err)
+		assert.Equal(t, "testvalue", val)
+	})
+
+	t.Run("get non-existent temporary data", func(t *testing.T) {
+		_, err := repo.GetTemporaryData(ctx, "nonexistent")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "temporary data not found")
+	})
+
+	t.Run("delete temporary data", func(t *testing.T) {
+		err := repo.SetTemporaryData(ctx, "todelete", "value", 1*time.Minute)
+		require.NoError(t, err)
+
+		err = repo.DeleteTemporaryData(ctx, "todelete")
+		require.NoError(t, err)
+
+		_, err = repo.GetTemporaryData(ctx, "todelete")
+		require.Error(t, err)
+	})
+
+	t.Run("temporary data expiration", func(t *testing.T) {
+		err := repo.SetTemporaryData(ctx, "tempkey", "tempvalue", 100*time.Millisecond)
+		require.NoError(t, err)
+
+		// Immediately get should work
+		val, err := repo.GetTemporaryData(ctx, "tempkey")
+		require.NoError(t, err)
+		assert.Equal(t, "tempvalue", val)
+
+		// Wait for expiration
+		time.Sleep(150 * time.Millisecond)
+
+		// Now should be expired
+		_, err = repo.GetTemporaryData(ctx, "tempkey")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "temporary data not found")
+	})
+}
+
+// func TestRedisRepository_ExtendSession(t *testing.T) {
+// 	client := setupTestRedis()
+// 	defer cleanupTestRedis(t, client)
+
+// 	repo := NewGurdianRedisSessionRepository(client)
+// 	ctx := context.Background()
+
+// 	t.Run("successful extension", func(t *testing.T) {
+// 		session := NewGurdianSessionObject(
+// 			uuid.New(),
+// 			"testuser",
+// 			nil,
+// 			nil,
+// 			[]Role{},
+// 			30*time.Minute,
+// 		)
+
+// 		_, err := repo.CreateSession(ctx, session)
+// 		require.NoError(t, err)
+
+// 		originalExpiry := session.ExpiresAt
+// 		extension := 1 * time.Hour
+
+// 		err = repo.ExtendSession(ctx, session.UUID, extension)
+// 		require.NoError(t, err)
+
+// 		// Verify the session was extended
+// 		updated, err := repo.GetSessionByID(ctx, session.UUID)
+// 		require.NoError(t, err)
+// 		assert.True(t, updated.ExpiresAt.After(originalExpiry))
+// 		assert.WithinDuration(t, originalExpiry.Add(extension), updated.ExpiresAt, time.Second)
+// 	})
+
+// 	t.Run("extend non-existent session", func(t *testing.T) {
+// 		err := repo.ExtendSession(ctx, uuid.New(), 1*time.Hour)
+// 		require.Error(t, err)
+// 		assert.Contains(t, err.Error(), "session not found")
+// 	})
+
+// 	t.Run("extend revoked session", func(t *testing.T) {
+// 		session := NewGurdianSessionObject(
+// 			uuid.New(),
+// 			"testuser",
+// 			nil,
+// 			nil,
+// 			[]Role{},
+// 			30*time.Minute,
+// 		)
+// 		session.Status = SessionStatusRevoked
+
+// 		_, err := repo.CreateSession(ctx, session)
+// 		require.NoError(t, err)
+
+// 		err = repo.ExtendSession(ctx, session.UUID, 1*time.Hour)
+// 		require.Error(t, err)
+// 		assert.Contains(t, err.Error(), "cannot extend inactive session")
+// 	})
+// }
+
+// func TestRedisRepository_RevokeSessionByID(t *testing.T) {
+// 	client := setupTestRedis()
+// 	defer cleanupTestRedis(t, client)
+
+// 	repo := NewGurdianRedisSessionRepository(client)
+// 	ctx := context.Background()
+
+// 	t.Run("successful revocation", func(t *testing.T) {
+// 		session := NewGurdianSessionObject(
+// 			uuid.New(),
+// 			"testuser",
+// 			nil,
+// 			nil,
+// 			[]Role{},
+// 			30*time.Minute,
+// 		)
+
+// 		_, err := repo.CreateSession(ctx, session)
+// 		require.NoError(t, err)
+
+// 		err = repo.RevokeSessionByID(ctx, session.UUID)
+// 		require.NoError(t, err)
+
+// 		// Verify session is revoked
+// 		stored, err := repo.GetSessionByID(ctx, session.UUID)
+// 		require.NoError(t, err)
+// 		assert.Equal(t, SessionStatusRevoked, stored.Status)
+// 		assert.True(t, stored.ExpiresAt.Before(time.Now()))
+// 	})
+
+// 	t.Run("revoke non-existent session", func(t *testing.T) {
+// 		err := repo.RevokeSessionByID(ctx, uuid.New())
+// 		require.Error(t, err)
+// 		assert.Contains(t, err.Error(), "session not found")
+// 	})
+
+// 	t.Run("revoke already revoked session", func(t *testing.T) {
+// 		session := NewGurdianSessionObject(
+// 			uuid.New(),
+// 			"testuser",
+// 			nil,
+// 			nil,
+// 			[]Role{},
+// 			30*time.Minute,
+// 		)
+// 		session.Status = SessionStatusRevoked
+
+// 		_, err := repo.CreateSession(ctx, session)
+// 		require.NoError(t, err)
+
+// 		err = repo.RevokeSessionByID(ctx, session.UUID)
+// 		require.NoError(t, err) // Should not error when revoking already revoked session
+
+// 		// Verify status remains revoked
+// 		stored, err := repo.GetSessionByID(ctx, session.UUID)
+// 		require.NoError(t, err)
+// 		assert.Equal(t, SessionStatusRevoked, stored.Status)
+// 	})
+// }
+
+// func TestRedisRepository_GetSessionsByUserID(t *testing.T) {
+// 	client := setupTestRedis()
+// 	defer cleanupTestRedis(t, client)
+
+// 	repo := NewGurdianRedisSessionRepository(client)
+// 	ctx := context.Background()
+
+// 	userID := uuid.New()
+
+// 	t.Run("no sessions for user", func(t *testing.T) {
+// 		sessions, err := repo.GetSessionsByUserID(ctx, userID)
+// 		require.NoError(t, err)
+// 		assert.Empty(t, sessions)
+// 	})
+
+// 	t.Run("multiple sessions for user", func(t *testing.T) {
+// 		// Create 3 sessions for the same user
+// 		session1 := NewGurdianSessionObject(
+// 			userID,
+// 			"testuser",
+// 			nil,
+// 			nil,
+// 			[]Role{},
+// 			30*time.Minute,
+// 		)
+// 		_, err := repo.CreateSession(ctx, session1)
+// 		require.NoError(t, err)
+
+// 		session2 := NewGurdianSessionObject(
+// 			userID,
+// 			"testuser",
+// 			nil,
+// 			nil,
+// 			[]Role{},
+// 			30*time.Minute,
+// 		)
+// 		_, err = repo.CreateSession(ctx, session2)
+// 		require.NoError(t, err)
+
+// 		session3 := NewGurdianSessionObject(
+// 			userID,
+// 			"testuser",
+// 			nil,
+// 			nil,
+// 			[]Role{},
+// 			30*time.Minute,
+// 		)
+// 		_, err = repo.CreateSession(ctx, session3)
+// 		require.NoError(t, err)
+
+// 		// Get all sessions
+// 		sessions, err := repo.GetSessionsByUserID(ctx, userID)
+// 		require.NoError(t, err)
+// 		assert.Len(t, sessions, 3)
+
+// 		// Verify all sessions belong to the same user
+// 		for _, s := range sessions {
+// 			assert.Equal(t, userID, s.UserID)
+// 		}
+// 	})
+
+// 	t.Run("mixed status sessions", func(t *testing.T) {
+// 		// Create active session
+// 		activeSession := NewGurdianSessionObject(
+// 			userID,
+// 			"testuser",
+// 			nil,
+// 			nil,
+// 			[]Role{},
+// 			30*time.Minute,
+// 		)
+// 		_, err := repo.CreateSession(ctx, activeSession)
+// 		require.NoError(t, err)
+
+// 		// Create expired session
+// 		expiredSession := NewGurdianSessionObject(
+// 			userID,
+// 			"testuser",
+// 			nil,
+// 			nil,
+// 			[]Role{},
+// 			-1*time.Minute, // Already expired
+// 		)
+// 		_, err = repo.CreateSession(ctx, expiredSession)
+// 		require.NoError(t, err)
+
+// 		// Create revoked session
+// 		revokedSession := NewGurdianSessionObject(
+// 			userID,
+// 			"testuser",
+// 			nil,
+// 			nil,
+// 			[]Role{},
+// 			30*time.Minute,
+// 		)
+// 		revokedSession.Status = SessionStatusRevoked
+// 		_, err = repo.CreateSession(ctx, revokedSession)
+// 		require.NoError(t, err)
+
+// 		// Get all sessions - should include all statuses
+// 		sessions, err := repo.GetSessionsByUserID(ctx, userID)
+// 		require.NoError(t, err)
+// 		assert.Len(t, sessions, 6) // 3 from previous test + 3 new ones
+// 	})
+// }
+
+// func TestRedisRepository_GetActiveSessionsByUserID(t *testing.T) {
+// 	client := setupTestRedis()
+// 	defer cleanupTestRedis(t, client)
+
+// 	repo := NewGurdianRedisSessionRepository(client)
+// 	ctx := context.Background()
+
+// 	userID := uuid.New()
+
+// 	t.Run("no active sessions", func(t *testing.T) {
+// 		sessions, err := repo.GetActiveSessionsByUserID(ctx, userID)
+// 		require.NoError(t, err)
+// 		assert.Empty(t, sessions)
+// 	})
+
+// 	t.Run("only active sessions returned", func(t *testing.T) {
+// 		// Create active session
+// 		activeSession := NewGurdianSessionObject(
+// 			userID,
+// 			"testuser",
+// 			nil,
+// 			nil,
+// 			[]Role{},
+// 			30*time.Minute,
+// 		)
+// 		_, err := repo.CreateSession(ctx, activeSession)
+// 		require.NoError(t, err)
+
+// 		// Create expired session
+// 		expiredSession := NewGurdianSessionObject(
+// 			userID,
+// 			"testuser",
+// 			nil,
+// 			nil,
+// 			[]Role{},
+// 			-1*time.Minute, // Already expired
+// 		)
+// 		_, err = repo.CreateSession(ctx, expiredSession)
+// 		require.NoError(t, err)
+
+// 		// Create revoked session
+// 		revokedSession := NewGurdianSessionObject(
+// 			userID,
+// 			"testuser",
+// 			nil,
+// 			nil,
+// 			[]Role{},
+// 			30*time.Minute,
+// 		)
+// 		revokedSession.Status = SessionStatusRevoked
+// 		_, err = repo.CreateSession(ctx, revokedSession)
+// 		require.NoError(t, err)
+
+// 		// Get active sessions - should only return the active one
+// 		sessions, err := repo.GetActiveSessionsByUserID(ctx, userID)
+// 		require.NoError(t, err)
+// 		assert.Len(t, sessions, 1)
+// 		assert.Equal(t, activeSession.UUID, sessions[0].UUID)
+// 		assert.Equal(t, SessionStatusActive, sessions[0].Status)
+// 	})
+// }

@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (41.2%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (53.3%)</option>
 				
 				</select>
 			</div>
@@ -225,7 +225,7 @@ func (r *GurdianRedisSessionRepository) sessionDataKey(sessionID uuid.UUID) stri
         return sessionDataKeyPrefix + sessionID.String()
 }</span>
 
-func (r *GurdianRedisSessionRepository) tempDataKey(key string) string <span class="cov0" title="0">{
+func (r *GurdianRedisSessionRepository) tempDataKey(key string) string <span class="cov8" title="1">{
         return tempDataKeyPrefix + key
 }</span>
 
@@ -357,16 +357,16 @@ func (r *GurdianRedisSessionRepository) GetSessionsByUserID(ctx context.Context,
         }</span>
 
         <span class="cov8" title="1">var sessions []*GourdianSessionType
-        for _, sessionIDStr := range sessionIDs </span><span class="cov0" title="0">{
+        for _, sessionIDStr := range sessionIDs </span><span class="cov8" title="1">{
                 sessionID, err := uuid.Parse(sessionIDStr)
                 if err != nil </span><span class="cov0" title="0">{
                         log.Printf("invalid session ID in user sessions set: %s", sessionIDStr)
                         continue</span>
                 }
 
-                <span class="cov0" title="0">session, err := r.GetSessionByID(ctx, sessionID)
-                if err != nil </span><span class="cov0" title="0">{
-                        if errors.Is(err, ErrNotFound) </span><span class="cov0" title="0">{
+                <span class="cov8" title="1">session, err := r.GetSessionByID(ctx, sessionID)
+                if err != nil </span><span class="cov8" title="1">{
+                        if errors.Is(err, ErrNotFound) </span><span class="cov8" title="1">{
                                 // Clean up stale session reference
                                 _ = r.client.SRem(ctx, r.userSessionsKey(userID), sessionIDStr)
                                 continue</span>
@@ -374,7 +374,7 @@ func (r *GurdianRedisSessionRepository) GetSessionsByUserID(ctx context.Context,
                         <span class="cov0" title="0">return nil, fmt.Errorf("failed to get session %s: %w", sessionID, err)</span>
                 }
 
-                <span class="cov0" title="0">sessions = append(sessions, session)</span>
+                <span class="cov8" title="1">sessions = append(sessions, session)</span>
         }
 
         <span class="cov8" title="1">return sessions, nil</span>
@@ -396,14 +396,14 @@ func (r *GurdianRedisSessionRepository) GetActiveSessionsByUserID(ctx context.Co
         <span class="cov8" title="1">return activeSessions, nil</span>
 }
 
-func (r *GurdianRedisSessionRepository) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error <span class="cov0" title="0">{
+func (r *GurdianRedisSessionRepository) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error <span class="cov8" title="1">{
         sessions, err := r.GetSessionsByUserID(ctx, userID)
         if err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
 
-        <span class="cov0" title="0">for _, session := range sessions </span><span class="cov0" title="0">{
-                if session.Status == SessionStatusActive </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">for _, session := range sessions </span><span class="cov8" title="1">{
+                if session.Status == SessionStatusActive </span><span class="cov8" title="1">{
                         session.Status = SessionStatusRevoked
                         session.ExpiresAt = time.Now()
                         _, err = r.UpdateSession(ctx, session)
@@ -413,17 +413,17 @@ func (r *GurdianRedisSessionRepository) RevokeUserSessions(ctx context.Context, 
                 }
         }
 
-        <span class="cov0" title="0">return nil</span>
+        <span class="cov8" title="1">return nil</span>
 }
 
-func (r *GurdianRedisSessionRepository) RevokeSessionsExcept(ctx context.Context, userID, exceptSessionID uuid.UUID) error <span class="cov0" title="0">{
+func (r *GurdianRedisSessionRepository) RevokeSessionsExcept(ctx context.Context, userID, exceptSessionID uuid.UUID) error <span class="cov8" title="1">{
         sessions, err := r.GetSessionsByUserID(ctx, userID)
         if err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
 
-        <span class="cov0" title="0">for _, session := range sessions </span><span class="cov0" title="0">{
-                if session.UUID != exceptSessionID &amp;&amp; session.Status == SessionStatusActive </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">for _, session := range sessions </span><span class="cov8" title="1">{
+                if session.UUID != exceptSessionID &amp;&amp; session.Status == SessionStatusActive </span><span class="cov8" title="1">{
                         session.Status = SessionStatusRevoked
                         session.ExpiresAt = time.Now()
                         _, err = r.UpdateSession(ctx, session)
@@ -433,7 +433,7 @@ func (r *GurdianRedisSessionRepository) RevokeSessionsExcept(ctx context.Context
                 }
         }
 
-        <span class="cov0" title="0">return nil</span>
+        <span class="cov8" title="1">return nil</span>
 }
 
 func (r *GurdianRedisSessionRepository) ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) error <span class="cov0" title="0">{
@@ -451,13 +451,13 @@ func (r *GurdianRedisSessionRepository) ExtendSession(ctx context.Context, sessi
         return err</span>
 }
 
-func (r *GurdianRedisSessionRepository) UpdateSessionActivity(ctx context.Context, sessionID uuid.UUID) error <span class="cov0" title="0">{
+func (r *GurdianRedisSessionRepository) UpdateSessionActivity(ctx context.Context, sessionID uuid.UUID) error <span class="cov8" title="1">{
         session, err := r.GetSessionByID(ctx, sessionID)
-        if err != nil </span><span class="cov0" title="0">{
+        if err != nil </span><span class="cov8" title="1">{
                 return err
         }</span>
 
-        <span class="cov0" title="0">session.LastActivity = time.Now()
+        <span class="cov8" title="1">session.LastActivity = time.Now()
         _, err = r.UpdateSession(ctx, session)
         return err</span>
 }
@@ -495,7 +495,7 @@ func (r *GurdianRedisSessionRepository) ValidateSessionByIDIPUA(ctx context.Cont
                 return nil, fmt.Errorf("%w: user agent mismatch", ErrInvalidSession)
         }</span>
 
-        <span class="cov0" title="0">return session, nil</span>
+        <span class="cov8" title="1">return session, nil</span>
 }
 
 func (r *GurdianRedisSessionRepository) SetSessionData(ctx context.Context, sessionID uuid.UUID, key string, value interface{}) error <span class="cov8" title="1">{
@@ -572,45 +572,45 @@ func (r *GurdianRedisSessionRepository) DeleteSessionData(ctx context.Context, s
         <span class="cov8" title="1">return nil</span>
 }
 
-func (r *GurdianRedisSessionRepository) SetTemporaryData(ctx context.Context, key string, value interface{}, ttl time.Duration) error <span class="cov0" title="0">{
+func (r *GurdianRedisSessionRepository) SetTemporaryData(ctx context.Context, key string, value interface{}, ttl time.Duration) error <span class="cov8" title="1">{
         valueJSON, err := json.Marshal(value)
         if err != nil </span><span class="cov0" title="0">{
                 return fmt.Errorf("failed to marshal temporary data: %w", err)
         }</span>
 
-        <span class="cov0" title="0">err = r.client.Set(ctx, r.tempDataKey(key), valueJSON, ttl).Err()
+        <span class="cov8" title="1">err = r.client.Set(ctx, r.tempDataKey(key), valueJSON, ttl).Err()
         if err != nil </span><span class="cov0" title="0">{
                 return fmt.Errorf("failed to set temporary data in Redis: %w", err)
         }</span>
 
-        <span class="cov0" title="0">return nil</span>
+        <span class="cov8" title="1">return nil</span>
 }
 
-func (r *GurdianRedisSessionRepository) GetTemporaryData(ctx context.Context, key string) (interface{}, error) <span class="cov0" title="0">{
+func (r *GurdianRedisSessionRepository) GetTemporaryData(ctx context.Context, key string) (interface{}, error) <span class="cov8" title="1">{
         valueJSON, err := r.client.Get(ctx, r.tempDataKey(key)).Result()
-        if err != nil </span><span class="cov0" title="0">{
-                if errors.Is(err, redis.Nil) </span><span class="cov0" title="0">{
+        if err != nil </span><span class="cov8" title="1">{
+                if errors.Is(err, redis.Nil) </span><span class="cov8" title="1">{
                         return nil, fmt.Errorf("%w: temporary data not found", ErrNotFound)
                 }</span>
                 <span class="cov0" title="0">return nil, fmt.Errorf("failed to get temporary data from Redis: %w", err)</span>
         }
 
-        <span class="cov0" title="0">var value interface{}
+        <span class="cov8" title="1">var value interface{}
         err = json.Unmarshal([]byte(valueJSON), &amp;value)
         if err != nil </span><span class="cov0" title="0">{
                 return nil, fmt.Errorf("failed to unmarshal temporary data: %w", err)
         }</span>
 
-        <span class="cov0" title="0">return value, nil</span>
+        <span class="cov8" title="1">return value, nil</span>
 }
 
-func (r *GurdianRedisSessionRepository) DeleteTemporaryData(ctx context.Context, key string) error <span class="cov0" title="0">{
+func (r *GurdianRedisSessionRepository) DeleteTemporaryData(ctx context.Context, key string) error <span class="cov8" title="1">{
         err := r.client.Del(ctx, r.tempDataKey(key)).Err()
         if err != nil </span><span class="cov0" title="0">{
                 return fmt.Errorf("failed to delete temporary data from Redis: %w", err)
         }</span>
 
-        <span class="cov0" title="0">return nil</span>
+        <span class="cov8" title="1">return nil</span>
 }
 
 type GourdianSessionConfig struct {
