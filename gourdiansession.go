@@ -156,6 +156,15 @@ func (r *GurdianRedisSessionRepository) CreateSession(ctx context.Context, sessi
 		return nil, errs.RepositoryError("CreateSession", errs.ErrInvalidInput, "session cannot be nil")
 	}
 
+	// Check if session already exists
+	exists, err := r.client.Exists(ctx, r.sessionKey(session.UUID)).Result()
+	if err != nil {
+		return nil, errs.RepositoryError("CreateSession", err, "failed to check session existence")
+	}
+	if exists > 0 {
+		return nil, errs.RepositoryError("CreateSession", errs.ErrConflict, "session already exists")
+	}
+
 	// Serialize session
 	sessionJSON, err := json.Marshal(session)
 	if err != nil {
@@ -204,12 +213,26 @@ func (r *GurdianRedisSessionRepository) GetSessionByID(ctx context.Context, sess
 		return nil, errs.RepositoryError("GetSessionByID", err, "failed to unmarshal session")
 	}
 
+	// Check if session is expired
+	if session.ExpiresAt.Before(time.Now()) {
+		return nil, errs.RepositoryError("GetSessionByID", errs.ErrNotFound, "session expired")
+	}
+
 	return &session, nil
 }
 
 func (r *GurdianRedisSessionRepository) UpdateSession(ctx context.Context, session *GourdianSessionType) (*GourdianSessionType, error) {
 	if session == nil {
 		return nil, errs.RepositoryError("UpdateSession", errs.ErrInvalidInput, "session cannot be nil")
+	}
+
+	// Check if session exists first
+	exists, err := r.client.Exists(ctx, r.sessionKey(session.UUID)).Result()
+	if err != nil {
+		return nil, errs.RepositoryError("UpdateSession", err, "failed to check session existence")
+	}
+	if exists == 0 {
+		return nil, errs.RepositoryError("UpdateSession", errs.ErrNotFound, "session not found")
 	}
 
 	sessionJSON, err := json.Marshal(session)
