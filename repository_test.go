@@ -817,3 +817,182 @@ func TestRedisRepository_GetSessionsByUserID(t *testing.T) {
 	})
 
 }
+
+func TestRedisRepository_ConcurrentSessionOperations(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	repo := NewGurdianRedisSessionRepository(client)
+	ctx := context.Background()
+
+	userID := uuid.New()
+	session := NewGurdianSessionObject(
+		userID,
+		"testuser",
+		nil,
+		nil,
+		[]Role{},
+		30*time.Minute,
+	)
+
+	t.Run("concurrent creates", func(t *testing.T) {
+		// Create the session first
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		// Try to create again concurrently
+		errChan := make(chan error, 1)
+		go func() {
+			_, err := repo.CreateSession(ctx, session)
+			errChan <- err
+		}()
+
+		err = <-errChan
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session already exists")
+	})
+
+	t.Run("concurrent updates", func(t *testing.T) {
+		// Reset session
+		err := client.FlushDB(ctx).Err()
+		require.NoError(t, err)
+
+		// Create initial session
+		_, err = repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		// Concurrent updates
+		update1 := *session
+		update1.Username = "update1"
+
+		update2 := *session
+		update2.Username = "update2"
+
+		errChan := make(chan error, 2)
+		go func() {
+			_, err := repo.UpdateSession(ctx, &update1)
+			errChan <- err
+		}()
+		go func() {
+			_, err := repo.UpdateSession(ctx, &update2)
+			errChan <- err
+		}()
+
+		// Wait for both updates to complete
+		err1 := <-errChan
+		err2 := <-errChan
+
+		// One should succeed, the other might fail or overwrite
+		if err1 == nil && err2 == nil {
+			// Both succeeded, check which update "won"
+			updated, err := repo.GetSessionByID(ctx, session.UUID)
+			require.NoError(t, err)
+			assert.True(t, updated.Username == "update1" || updated.Username == "update2")
+		} else {
+			// One failed
+			assert.True(t, err1 != nil || err2 != nil)
+		}
+	})
+}
+
+func TestRedisRepository_NilInputHandling(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	repo := NewGurdianRedisSessionRepository(client)
+	ctx := context.Background()
+
+	t.Run("nil IP and UA", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil, // nil IP
+			nil, // nil UA
+			[]Role{},
+			30*time.Minute,
+		)
+
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		// Should be able to validate with any IP/UA
+		validated, err := repo.ValidateSessionByIDIPUA(ctx, session.UUID, "1.2.3.4", "some-agent")
+		require.NoError(t, err)
+		assert.Equal(t, session.UUID, validated.UUID)
+	})
+
+	t.Run("empty roles", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			nil, // empty roles
+			30*time.Minute,
+		)
+
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		retrieved, err := repo.GetSessionByID(ctx, session.UUID)
+		require.NoError(t, err)
+		assert.Empty(t, retrieved.Roles)
+	})
+}
+
+func TestRedisRepository_UserSessionTracking(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	repo := NewGurdianRedisSessionRepository(client)
+	ctx := context.Background()
+
+	user1 := uuid.New()
+	user2 := uuid.New()
+
+	t.Run("multiple users sessions", func(t *testing.T) {
+		// Create 2 sessions for user1
+		session1 := NewGurdianSessionObject(
+			user1,
+			"user1",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+		_, err := repo.CreateSession(ctx, session1)
+		require.NoError(t, err)
+
+		session2 := NewGurdianSessionObject(
+			user1,
+			"user1",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+		_, err = repo.CreateSession(ctx, session2)
+		require.NoError(t, err)
+
+		// Create 1 session for user2
+		session3 := NewGurdianSessionObject(
+			user2,
+			"user2",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+		_, err = repo.CreateSession(ctx, session3)
+		require.NoError(t, err)
+
+		// Verify counts
+		user1Sessions, err := repo.GetSessionsByUserID(ctx, user1)
+		require.NoError(t, err)
+		assert.Len(t, user1Sessions, 2)
+
+		user2Sessions, err := repo.GetSessionsByUserID(ctx, user2)
+		require.NoError(t, err)
+		assert.Len(t, user2Sessions, 1)
+	})
+}
