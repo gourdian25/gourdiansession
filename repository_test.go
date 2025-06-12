@@ -44,70 +44,6 @@ func TestRedisRepository_DeleteSession(t *testing.T) {
 		assert.Contains(t, err.Error(), "session not found")
 	})
 }
-
-func TestRedisRepository_ValidateSession(t *testing.T) {
-	client := setupTestRedis()
-	defer cleanupTestRedis(t, client)
-
-	repo := NewGurdianRedisSessionRepository(client)
-	ctx := context.Background()
-
-	t.Run("valid session", func(t *testing.T) {
-		session := NewGurdianSessionObject(
-			uuid.New(),
-			"testuser",
-			nil,
-			nil,
-			[]Role{},
-			30*time.Minute,
-		)
-
-		_, err := repo.CreateSession(ctx, session)
-		require.NoError(t, err)
-
-		validated, err := repo.ValidateSessionByID(ctx, session.UUID)
-		require.NoError(t, err)
-		assert.Equal(t, session.UUID, validated.UUID)
-	})
-
-	t.Run("revoked session", func(t *testing.T) {
-		session := NewGurdianSessionObject(
-			uuid.New(),
-			"testuser",
-			nil,
-			nil,
-			[]Role{},
-			30*time.Minute,
-		)
-		session.Status = SessionStatusRevoked
-
-		_, err := repo.CreateSession(ctx, session)
-		require.NoError(t, err)
-
-		_, err = repo.ValidateSessionByID(ctx, session.UUID)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "session is not active")
-	})
-
-	t.Run("expired session", func(t *testing.T) {
-		session := NewGurdianSessionObject(
-			uuid.New(),
-			"testuser",
-			nil,
-			nil,
-			[]Role{},
-			-1*time.Minute, // Already expired
-		)
-
-		_, err := repo.CreateSession(ctx, session)
-		require.NoError(t, err)
-
-		_, err = repo.ValidateSessionByID(ctx, session.UUID)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "session has expired")
-	})
-}
-
 func TestRedisRepository_SessionDataOperations(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
@@ -303,5 +239,68 @@ func TestRedisRepository_UpdateSession(t *testing.T) {
 		_, err := repo.UpdateSession(ctx, session)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to update session")
+	})
+}
+
+func TestRedisRepository_ValidateSession(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	repo := NewGurdianRedisSessionRepository(client)
+	ctx := context.Background()
+
+	t.Run("valid session", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		validated, err := repo.ValidateSessionByID(ctx, session.UUID)
+		require.NoError(t, err)
+		assert.Equal(t, session.UUID, validated.UUID)
+	})
+
+	t.Run("revoked session", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+		session.Status = SessionStatusRevoked
+
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		_, err = repo.ValidateSessionByID(ctx, session.UUID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session is not active")
+	})
+
+	t.Run("expired session", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			-1*time.Minute, // Already expired
+		)
+
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		_, err = repo.ValidateSessionByID(ctx, session.UUID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session has expired")
 	})
 }
