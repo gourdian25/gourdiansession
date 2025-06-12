@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gourdian25/gourdiansession/errs"
 	"github.com/redis/go-redis/v9"
 )
 
