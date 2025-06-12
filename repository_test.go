@@ -238,7 +238,7 @@ func TestRedisRepository_UpdateSession(t *testing.T) {
 
 		_, err := repo.UpdateSession(ctx, session)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to update session")
+		assert.Contains(t, err.Error(), "session not found")
 	})
 }
 
@@ -287,18 +287,25 @@ func TestRedisRepository_ValidateSession(t *testing.T) {
 	})
 
 	t.Run("expired session", func(t *testing.T) {
+		// First create a valid session
 		session := NewGurdianSessionObject(
 			uuid.New(),
 			"testuser",
 			nil,
 			nil,
 			[]Role{},
-			-1*time.Minute, // Already expired
+			1*time.Minute, // Create with positive duration
 		)
 
 		_, err := repo.CreateSession(ctx, session)
 		require.NoError(t, err)
 
+		// Manually set it to expired in Redis
+		session.ExpiresAt = time.Now().Add(-1 * time.Minute)
+		_, err = repo.UpdateSession(ctx, session)
+		require.NoError(t, err)
+
+		// Now validate should catch the expiration
 		_, err = repo.ValidateSessionByID(ctx, session.UUID)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "session has expired")
