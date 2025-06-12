@@ -191,7 +191,7 @@ func TestRedisRepository_GetSessionByID(t *testing.T) {
 		// Redis may have already cleaned it up
 		_, err = repo.GetSessionByID(ctx, session.UUID)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "session expired")
+		assert.Contains(t, err.Error(), "session has expired")
 	})
 }
 

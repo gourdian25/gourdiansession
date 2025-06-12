@@ -222,7 +222,7 @@ func (r *GurdianRedisSessionRepository) GetSessionByID(ctx context.Context, sess
 
 	// Check if session is expired
 	if session.ExpiresAt.Before(time.Now()) {
-		return nil, fmt.Errorf("%w: session expired", ErrNotFound)
+		return nil, fmt.Errorf("%w: session has expired", ErrNotFound)
 	}
 
 	return &session, nil
@@ -403,7 +403,7 @@ func (r *GurdianRedisSessionRepository) ValidateSessionByID(ctx context.Context,
 
 	if session.ExpiresAt.Before(time.Now()) {
 		session.Status = SessionStatusExpired
-		_, _ = r.UpdateSession(ctx, session) // Best effort update
+		_, _ = r.UpdateSession(ctx, session)
 		return nil, fmt.Errorf("%w: session has expired", ErrInvalidSession)
 	}
 
