@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (53.3%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (55.2%)</option>
 				
 				</select>
 			</div>
@@ -436,17 +436,17 @@ func (r *GurdianRedisSessionRepository) RevokeSessionsExcept(ctx context.Context
         <span class="cov8" title="1">return nil</span>
 }
 
-func (r *GurdianRedisSessionRepository) ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) error <span class="cov0" title="0">{
+func (r *GurdianRedisSessionRepository) ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) error <span class="cov8" title="1">{
         session, err := r.GetSessionByID(ctx, sessionID)
-        if err != nil </span><span class="cov0" title="0">{
+        if err != nil </span><span class="cov8" title="1">{
                 return err
         }</span>
 
-        <span class="cov0" title="0">if session.Status != SessionStatusActive </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if session.Status != SessionStatusActive </span><span class="cov8" title="1">{
                 return fmt.Errorf("%w: cannot extend inactive session", ErrInvalidSession)
         }</span>
 
-        <span class="cov0" title="0">session.ExpiresAt = time.Now().Add(duration)
+        <span class="cov8" title="1">session.ExpiresAt = session.ExpiresAt.Add(duration) // &lt;-- Fixed: Add to existing expiration
         _, err = r.UpdateSession(ctx, session)
         return err</span>
 }

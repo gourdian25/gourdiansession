@@ -637,64 +637,64 @@ func TestRedisRepository_TemporaryDataOperations(t *testing.T) {
 	})
 }
 
-// func TestRedisRepository_ExtendSession(t *testing.T) {
-// 	client := setupTestRedis()
-// 	defer cleanupTestRedis(t, client)
+func TestRedisRepository_ExtendSession(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
 
-// 	repo := NewGurdianRedisSessionRepository(client)
-// 	ctx := context.Background()
+	repo := NewGurdianRedisSessionRepository(client)
+	ctx := context.Background()
 
-// 	t.Run("successful extension", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
+	t.Run("successful extension", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
 
-// 		originalExpiry := session.ExpiresAt
-// 		extension := 1 * time.Hour
+		originalExpiry := session.ExpiresAt
+		extension := 1 * time.Hour
 
-// 		err = repo.ExtendSession(ctx, session.UUID, extension)
-// 		require.NoError(t, err)
+		err = repo.ExtendSession(ctx, session.UUID, extension)
+		require.NoError(t, err)
 
-// 		// Verify the session was extended
-// 		updated, err := repo.GetSessionByID(ctx, session.UUID)
-// 		require.NoError(t, err)
-// 		assert.True(t, updated.ExpiresAt.After(originalExpiry))
-// 		assert.WithinDuration(t, originalExpiry.Add(extension), updated.ExpiresAt, time.Second)
-// 	})
+		// Verify the session was extended
+		updated, err := repo.GetSessionByID(ctx, session.UUID)
+		require.NoError(t, err)
+		assert.True(t, updated.ExpiresAt.After(originalExpiry))
+		assert.WithinDuration(t, originalExpiry.Add(extension), updated.ExpiresAt, time.Second)
+	})
 
-// 	t.Run("extend non-existent session", func(t *testing.T) {
-// 		err := repo.ExtendSession(ctx, uuid.New(), 1*time.Hour)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session not found")
-// 	})
+	t.Run("extend non-existent session", func(t *testing.T) {
+		err := repo.ExtendSession(ctx, uuid.New(), 1*time.Hour)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session not found")
+	})
 
-// 	t.Run("extend revoked session", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
-// 		session.Status = SessionStatusRevoked
+	t.Run("extend revoked session", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+		session.Status = SessionStatusRevoked
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
 
-// 		err = repo.ExtendSession(ctx, session.UUID, 1*time.Hour)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "cannot extend inactive session")
-// 	})
-// }
+		err = repo.ExtendSession(ctx, session.UUID, 1*time.Hour)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot extend inactive session")
+	})
+}
 
 // func TestRedisRepository_RevokeSessionByID(t *testing.T) {
 // 	client := setupTestRedis()

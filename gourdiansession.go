@@ -375,7 +375,7 @@ func (r *GurdianRedisSessionRepository) ExtendSession(ctx context.Context, sessi
 		return fmt.Errorf("%w: cannot extend inactive session", ErrInvalidSession)
 	}
 
-	session.ExpiresAt = time.Now().Add(duration)
+	session.ExpiresAt = session.ExpiresAt.Add(duration) // <-- Fixed: Add to existing expiration
 	_, err = r.UpdateSession(ctx, session)
 	return err
 }
