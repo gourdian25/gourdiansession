@@ -199,7 +199,7 @@ func (r *GurdianRedisSessionRepository) RevokeSessionByID(ctx context.Context, s
 	}
 
 	session.Status = SessionStatusRevoked
-	session.ExpiresAt = time.Now()
+	session.ExpiresAt = time.Now().Add(1 * time.Minute)
 
 	_, err = r.UpdateSession(ctx, session)
 	return err
