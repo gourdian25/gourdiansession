@@ -274,8 +274,13 @@ func TestSessionService_RevokeOperations(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
+	// Create test config with relaxed limits for testing revocation
+	testCfg := testConfig()
+	testCfg.MaxSessionsPerDevice = 10 // Increase device limit for testing
+	testCfg.MaxUserSessions = 10      // Increase user limit for testing
+
 	repo := NewGurdianRedisSessionRepository(client)
-	svc := NewGourdianSessionService(repo, testConfig())
+	svc := NewGourdianSessionService(repo, testCfg)
 	ctx := context.Background()
 
 	t.Run("revoke single session", func(t *testing.T) {
@@ -291,29 +296,35 @@ func TestSessionService_RevokeOperations(t *testing.T) {
 	})
 
 	t.Run("revoke all user sessions", func(t *testing.T) {
-		_, userID := createTestSession(t, svc)
+		userID := uuid.New()
 
-		// Create multiple sessions for the user
+		// Create multiple sessions with different user agents to avoid device limits
 		for i := 0; i < 3; i++ {
-			_, err := svc.CreateSession(ctx, userID, "testuser", strPtr("192.168.1.1"), strPtr("test-agent"), []Role{})
+			ua := fmt.Sprintf("test-agent-%d", i)
+			_, err := svc.CreateSession(ctx, userID, "testuser", strPtr("192.168.1.1"), &ua, []Role{})
 			require.NoError(t, err)
 		}
 
 		activeBefore, err := svc.GetActiveUserSessions(ctx, userID)
 		require.NoError(t, err)
-		assert.True(t, len(activeBefore) > 0)
+		assert.Equal(t, 3, len(activeBefore), "Should have 3 active sessions before revocation")
 
 		err = svc.RevokeAllUserSessions(ctx, userID)
 		require.NoError(t, err)
 
 		activeAfter, err := svc.GetActiveUserSessions(ctx, userID)
 		require.NoError(t, err)
-		assert.Equal(t, 0, len(activeAfter))
+		assert.Equal(t, 0, len(activeAfter), "All sessions should be revoked")
 	})
 
 	t.Run("revoke other user sessions", func(t *testing.T) {
-		session1, userID := createTestSession(t, svc)
-		session2, err := svc.CreateSession(ctx, userID, "testuser", strPtr("192.168.1.1"), strPtr("test-agent"), []Role{})
+		userID := uuid.New()
+
+		// Create sessions with different user agents
+		session1, err := svc.CreateSession(ctx, userID, "testuser", strPtr("192.168.1.1"), strPtr("test-agent-1"), []Role{})
+		require.NoError(t, err)
+
+		session2, err := svc.CreateSession(ctx, userID, "testuser", strPtr("192.168.1.1"), strPtr("test-agent-2"), []Role{})
 		require.NoError(t, err)
 
 		// Revoke all except session1
