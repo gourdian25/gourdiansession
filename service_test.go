@@ -342,3 +342,244 @@ func TestSessionService_RevokeOperations(t *testing.T) {
 		assert.Nil(t, valid2)
 	})
 }
+
+// Add these tests to your service_test.go file
+
+func TestNewGourdianSession(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	config := testConfig()
+	service := NewGourdianSession(client, config)
+
+	// Verify the service is created properly
+	assert.NotNil(t, service)
+	_, ok := service.(GourdianSessionServiceInt)
+	assert.True(t, ok, "should implement GourdianSessionServiceInt interface")
+}
+
+func TestSessionService_GetSession(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	repo := NewGurdianRedisSessionRepository(client)
+	svc := NewGourdianSessionService(repo, testConfig())
+	ctx := context.Background()
+
+	t.Run("get existing session", func(t *testing.T) {
+		session, _ := createTestSession(t, svc)
+
+		retrieved, err := svc.GetSession(ctx, session.UUID)
+		require.NoError(t, err)
+		assert.Equal(t, session.UUID, retrieved.UUID)
+	})
+
+	t.Run("get non-existent session", func(t *testing.T) {
+		_, err := svc.GetSession(ctx, uuid.New())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to get session")
+	})
+
+	t.Run("get with nil session ID", func(t *testing.T) {
+		_, err := svc.GetSession(ctx, uuid.Nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session ID cannot be empty")
+	})
+}
+
+func TestSessionService_UpdateSessionActivity(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	repo := NewGurdianRedisSessionRepository(client)
+	svc := NewGourdianSessionService(repo, testConfig())
+	ctx := context.Background()
+
+	t.Run("update activity", func(t *testing.T) {
+		session, _ := createTestSession(t, svc)
+		originalActivity := session.LastActivity
+
+		time.Sleep(10 * time.Millisecond) // Ensure time passes
+		err := svc.UpdateSessionActivity(ctx, session.UUID)
+		require.NoError(t, err)
+
+		updated, err := svc.GetSession(ctx, session.UUID)
+		require.NoError(t, err)
+		assert.True(t, updated.LastActivity.After(originalActivity))
+	})
+
+	t.Run("update non-existent session", func(t *testing.T) {
+		err := svc.UpdateSessionActivity(ctx, uuid.New())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to update session activity")
+	})
+}
+
+func TestSessionService_ExtendSession(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	repo := NewGurdianRedisSessionRepository(client)
+	svc := NewGourdianSessionService(repo, testConfig())
+	ctx := context.Background()
+
+	t.Run("extend valid session", func(t *testing.T) {
+		session, _ := createTestSession(t, svc)
+		originalExpiry := session.ExpiresAt
+
+		extended, err := svc.ExtendSession(ctx, session.UUID, 1*time.Hour)
+		require.NoError(t, err)
+		assert.True(t, extended.ExpiresAt.After(originalExpiry))
+	})
+
+	t.Run("extend with invalid duration", func(t *testing.T) {
+		session, _ := createTestSession(t, svc)
+		_, err := svc.ExtendSession(ctx, session.UUID, -1*time.Hour)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "duration must be positive")
+	})
+
+	t.Run("extend revoked session", func(t *testing.T) {
+		session, _ := createTestSession(t, svc)
+		err := svc.RevokeSession(ctx, session.UUID)
+		require.NoError(t, err)
+
+		_, err = svc.ExtendSession(ctx, session.UUID, 1*time.Hour)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session validation failed")
+	})
+}
+
+func TestSessionService_ValidateSessionWithContext(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	repo := NewGurdianRedisSessionRepository(client)
+	svc := NewGourdianSessionService(repo, testConfig())
+	ctx := context.Background()
+
+	ip := "192.168.1.1"
+	ua := "test-agent"
+
+	t.Run("validate with matching context", func(t *testing.T) {
+		session, _ := createTestSession(t, svc)
+		session.IPAddress = &ip
+		session.UserAgent = &ua
+		_, err := repo.UpdateSession(ctx, session)
+		require.NoError(t, err)
+
+		validated, err := svc.ValidateSessionWithContext(ctx, session.UUID, ip, ua)
+		require.NoError(t, err)
+		assert.Equal(t, session.UUID, validated.UUID)
+	})
+
+	t.Run("validate with IP mismatch", func(t *testing.T) {
+		session, _ := createTestSession(t, svc)
+		session.IPAddress = &ip
+		session.UserAgent = &ua
+		_, err := repo.UpdateSession(ctx, session)
+		require.NoError(t, err)
+
+		_, err = svc.ValidateSessionWithContext(ctx, session.UUID, "10.0.0.1", ua)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "IP address mismatch")
+	})
+
+	t.Run("validate with UA mismatch", func(t *testing.T) {
+		session, _ := createTestSession(t, svc)
+		session.IPAddress = &ip
+		session.UserAgent = &ua
+		_, err := repo.UpdateSession(ctx, session)
+		require.NoError(t, err)
+
+		_, err = svc.ValidateSessionWithContext(ctx, session.UUID, ip, "different-agent")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "user agent mismatch")
+	})
+
+	t.Run("validate with empty inputs", func(t *testing.T) {
+		_, err := svc.ValidateSessionWithContext(ctx, uuid.Nil, "", "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session ID cannot be empty")
+	})
+}
+
+// func TestSessionService_GetUserSessions(t *testing.T) {
+// 	client := setupTestRedis()
+// 	defer cleanupTestRedis(t, client)
+
+// 	repo := NewGurdianRedisSessionRepository(client)
+// 	svc := NewGourdianSessionService(repo, testConfig())
+// 	ctx := context.Background()
+
+// 	t.Run("get sessions for user with none", func(t *testing.T) {
+// 		sessions, err := svc.GetUserSessions(ctx, uuid.New())
+// 		require.NoError(t, err)
+// 		assert.Empty(t, sessions)
+// 	})
+
+// 	t.Run("get sessions for user with multiple", func(t *testing.T) {
+// 		_, userID := createTestSession(t, svc)
+// 		session2, _ := createTestSession(t, svc)
+// 		session2.UserID = userID
+// 		_, err := repo.UpdateSession(ctx, session2)
+// 		require.NoError(t, err)
+
+// 		sessions, err := svc.GetUserSessions(ctx, userID)
+// 		require.NoError(t, err)
+// 		assert.Len(t, sessions, 2)
+// 	})
+
+// 	t.Run("get with nil user ID", func(t *testing.T) {
+// 		_, err := svc.GetUserSessions(ctx, uuid.Nil)
+// 		require.Error(t, err)
+// 		assert.Contains(t, err.Error(), "user ID cannot be empty")
+// 	})
+// }
+
+// func TestSessionService_EnforceSessionLimits(t *testing.T) {
+// 	client := setupTestRedis()
+// 	defer cleanupTestRedis(t, client)
+
+// 	// Create a config with strict limits
+// 	strictConfig := &GourdianSessionConfig{
+// 		MaxUserSessions:         1,
+// 		MaxSessionsPerDevice:    1,
+// 		MaxIPConnections:        1,
+// 		AllowConcurrentSessions: false,
+// 		TrackIPAddresses:        true,
+// 		TrackClientDevices:      true,
+// 		DefaultSessionDuration:  30 * time.Minute,
+// 	}
+
+// 	repo := NewGurdianRedisSessionRepository(client)
+// 	svc := NewGourdianSessionService(repo, strictConfig)
+// 	ctx := context.Background()
+
+// 	userID := uuid.New()
+// 	ip := "192.168.1.1"
+// 	ua := "test-agent"
+
+// 	t.Run("enforce single session", func(t *testing.T) {
+// 		// Create first session
+// 		_, err := svc.CreateSession(ctx, userID, "testuser", &ip, &ua, []Role{})
+// 		require.NoError(t, err)
+
+// 		// Try to create another session - should fail due to single session policy
+// 		_, err = svc.CreateSession(ctx, userID, "testuser", &ip, &ua, []Role{})
+// 		require.Error(t, err)
+// 		assert.Contains(t, err.Error(), "failed to enforce single session policy")
+// 	})
+
+// 	t.Run("enforce with nil IP and UA", func(t *testing.T) {
+// 		// Should work with nil IP/UA when not tracking them
+// 		looseConfig := &GourdianSessionConfig{
+// 			TrackIPAddresses:   false,
+// 			TrackClientDevices: false,
+// 		}
+// 		looseSvc := NewGourdianSessionService(repo, looseConfig)
+
+// 		err := looseSvc.EnforceSessionLimits(ctx, userID, nil, nil)
+// 		require.NoError(t, err)
+// 	})
+// }

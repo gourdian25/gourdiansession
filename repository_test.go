@@ -996,3 +996,114 @@ func TestRedisRepository_UserSessionTracking(t *testing.T) {
 		assert.Len(t, user2Sessions, 1)
 	})
 }
+
+// Add these tests to your repository_test.go file
+
+func TestRedisRepository_GetSessionsByUserID_EdgeCases(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	// Create the concrete type so we can access the key methods
+	repoImpl := &GurdianRedisSessionRepository{client: client}
+	// But use the interface type for the actual test operations
+	repo := GurdianSessionRepositoryInt(repoImpl)
+	ctx := context.Background()
+
+	t.Run("handle invalid session IDs in set", func(t *testing.T) {
+		userID := uuid.New()
+		invalidKey := repoImpl.userSessionsKey(userID)
+
+		// Add invalid session ID to the set
+		err := client.SAdd(ctx, invalidKey, "invalid-uuid").Err()
+		require.NoError(t, err)
+
+		sessions, err := repo.GetSessionsByUserID(ctx, userID)
+		require.NoError(t, err)
+		assert.Empty(t, sessions)
+
+		// Verify the invalid ID was cleaned up
+		members, err := client.SMembers(ctx, invalidKey).Result()
+		require.NoError(t, err)
+		assert.Empty(t, members)
+	})
+
+	t.Run("handle stale session references", func(t *testing.T) {
+		userID := uuid.New()
+		sessionID := uuid.New()
+		userSessionsKey := repoImpl.userSessionsKey(userID)
+
+		// Add reference to non-existent session
+		err := client.SAdd(ctx, userSessionsKey, sessionID.String()).Err()
+		require.NoError(t, err)
+
+		sessions, err := repo.GetSessionsByUserID(ctx, userID)
+		require.NoError(t, err)
+		assert.Empty(t, sessions)
+
+		// Verify the stale reference was cleaned up
+		members, err := client.SMembers(ctx, userSessionsKey).Result()
+		require.NoError(t, err)
+		assert.Empty(t, members)
+	})
+}
+
+// func TestRedisRepository_ValidateSessionByID_EdgeCases(t *testing.T) {
+// 	client := setupTestRedis()
+// 	defer cleanupTestRedis(t, client)
+
+// 	repo := NewGurdianRedisSessionRepository(client)
+// 	ctx := context.Background()
+
+// 	t.Run("expired session marking", func(t *testing.T) {
+// 		session := NewGurdianSessionObject(
+// 			uuid.New(),
+// 			"testuser",
+// 			nil,
+// 			nil,
+// 			[]Role{},
+// 			1*time.Millisecond, // Very short expiration
+// 		)
+
+// 		_, err := repo.CreateSession(ctx, session)
+// 		require.NoError(t, err)
+
+// 		// Wait for expiration
+// 		time.Sleep(10 * time.Millisecond)
+
+// 		_, err = repo.ValidateSessionByID(ctx, session.UUID)
+// 		require.Error(t, err)
+// 		assert.Contains(t, err.Error(), "session has expired")
+
+// 		// Verify session was marked as expired
+// 		stored, err := repo.GetSessionByID(ctx, session.UUID)
+// 		require.NoError(t, err)
+// 		assert.Equal(t, SessionStatusExpired, stored.Status)
+// 	})
+
+// 	t.Run("failed status update on expiration", func(t *testing.T) {
+// 		// Create a session that will expire
+// 		session := NewGurdianSessionObject(
+// 			uuid.New(),
+// 			"testuser",
+// 			nil,
+// 			nil,
+// 			[]Role{},
+// 			1*time.Millisecond,
+// 		)
+
+// 		_, err := repo.CreateSession(ctx, session)
+// 		require.NoError(t, err)
+
+// 		// Wait for expiration
+// 		time.Sleep(10 * time.Millisecond)
+
+// 		// Delete the session to force update failure
+// 		err = repo.DeleteSession(ctx, session.UUID)
+// 		require.NoError(t, err)
+
+// 		// Validation should still fail with expired error
+// 		_, err = repo.ValidateSessionByID(ctx, session.UUID)
+// 		require.Error(t, err)
+// 		assert.Contains(t, err.Error(), "session not found")
+// 	})
+// }

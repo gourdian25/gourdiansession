@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (69.7%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (76.1%)</option>
 				
 				</select>
 			</div>
@@ -738,17 +738,17 @@ func (s *GourdianSessionService) RevokeSession(ctx context.Context, sessionID uu
         <span class="cov8" title="1">return nil</span>
 }
 
-func (s *GourdianSessionService) GetSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) <span class="cov0" title="0">{
-        if sessionID == uuid.Nil </span><span class="cov0" title="0">{
+func (s *GourdianSessionService) GetSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) <span class="cov8" title="1">{
+        if sessionID == uuid.Nil </span><span class="cov8" title="1">{
                 return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
         }</span>
 
-        <span class="cov0" title="0">session, err := s.repo.GetSessionByID(ctx, sessionID)
-        if err != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">session, err := s.repo.GetSessionByID(ctx, sessionID)
+        if err != nil </span><span class="cov8" title="1">{
                 return nil, fmt.Errorf("failed to get session: %w", err)
         }</span>
 
-        <span class="cov0" title="0">return session, nil</span>
+        <span class="cov8" title="1">return session, nil</span>
 }
 
 func (s *GourdianSessionService) RefreshSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) <span class="cov8" title="1">{
@@ -781,41 +781,41 @@ func (s *GourdianSessionService) RefreshSession(ctx context.Context, sessionID u
         <span class="cov8" title="1">return session, nil</span>
 }
 
-func (s *GourdianSessionService) ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) (*GourdianSessionType, error) <span class="cov0" title="0">{
+func (s *GourdianSessionService) ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) (*GourdianSessionType, error) <span class="cov8" title="1">{
         if sessionID == uuid.Nil </span><span class="cov0" title="0">{
                 return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
         }</span>
-        <span class="cov0" title="0">if duration &lt;= 0 </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if duration &lt;= 0 </span><span class="cov8" title="1">{
                 return nil, fmt.Errorf("%w: duration must be positive", ErrInvalidInput)
         }</span>
 
-        <span class="cov0" title="0">session, err := s.ValidateSession(ctx, sessionID)
-        if err != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">session, err := s.ValidateSession(ctx, sessionID)
+        if err != nil </span><span class="cov8" title="1">{
                 return nil, err
         }</span>
 
-        <span class="cov0" title="0">if err := s.repo.ExtendSession(ctx, session.UUID, duration); err != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if err := s.repo.ExtendSession(ctx, session.UUID, duration); err != nil </span><span class="cov0" title="0">{
                 return nil, fmt.Errorf("failed to extend session: %w", err)
         }</span>
 
-        <span class="cov0" title="0">updatedSession, err := s.repo.GetSessionByID(ctx, sessionID)
+        <span class="cov8" title="1">updatedSession, err := s.repo.GetSessionByID(ctx, sessionID)
         if err != nil </span><span class="cov0" title="0">{
                 return nil, fmt.Errorf("failed to get updated session: %w", err)
         }</span>
 
-        <span class="cov0" title="0">return updatedSession, nil</span>
+        <span class="cov8" title="1">return updatedSession, nil</span>
 }
 
-func (s *GourdianSessionService) UpdateSessionActivity(ctx context.Context, sessionID uuid.UUID) error <span class="cov0" title="0">{
+func (s *GourdianSessionService) UpdateSessionActivity(ctx context.Context, sessionID uuid.UUID) error <span class="cov8" title="1">{
         if sessionID == uuid.Nil </span><span class="cov0" title="0">{
                 return fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
         }</span>
 
-        <span class="cov0" title="0">if err := s.repo.UpdateSessionActivity(ctx, sessionID); err != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if err := s.repo.UpdateSessionActivity(ctx, sessionID); err != nil </span><span class="cov8" title="1">{
                 return fmt.Errorf("failed to update session activity: %w", err)
         }</span>
 
-        <span class="cov0" title="0">return nil</span>
+        <span class="cov8" title="1">return nil</span>
 }
 
 func (s *GourdianSessionService) GetUserSessions(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error) <span class="cov0" title="0">{
@@ -894,7 +894,7 @@ func (s *GourdianSessionService) ValidateSession(ctx context.Context, sessionID 
 }
 
 func (s *GourdianSessionService) ValidateSessionWithContext(ctx context.Context, sessionID uuid.UUID, ipAddress, userAgent string) (*GourdianSessionType, error) <span class="cov8" title="1">{
-        if sessionID == uuid.Nil </span><span class="cov0" title="0">{
+        if sessionID == uuid.Nil </span><span class="cov8" title="1">{
                 return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
         }</span>
         <span class="cov8" title="1">if ipAddress == "" </span><span class="cov0" title="0">{
@@ -909,7 +909,7 @@ func (s *GourdianSessionService) ValidateSessionWithContext(ctx context.Context,
                 return nil, fmt.Errorf("session validation failed: %w", err)
         }</span>
 
-        <span class="cov0" title="0">if s.config.IdleTimeoutDuration &gt; 0 </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if s.config.IdleTimeoutDuration &gt; 0 </span><span class="cov8" title="1">{
                 idleCutoff := time.Now().Add(-s.config.IdleTimeoutDuration)
                 if session.LastActivity.Before(idleCutoff) </span><span class="cov0" title="0">{
                         session.Status = SessionStatusExpired
@@ -918,7 +918,7 @@ func (s *GourdianSessionService) ValidateSessionWithContext(ctx context.Context,
                 }</span>
         }
 
-        <span class="cov0" title="0">return session, nil</span>
+        <span class="cov8" title="1">return session, nil</span>
 }
 
 func (s *GourdianSessionService) SetSessionData(ctx context.Context, sessionID uuid.UUID, key string, value interface{}) error <span class="cov8" title="1">{
@@ -1107,7 +1107,7 @@ func (s *GourdianSessionService) isUserAgentBlocked(userAgent string) bool <span
         <span class="cov8" title="1">return false</span>
 }
 
-func NewGourdianSession(redisClient *redis.Client, config *GourdianSessionConfig) GourdianSessionServiceInt <span class="cov0" title="0">{
+func NewGourdianSession(redisClient *redis.Client, config *GourdianSessionConfig) GourdianSessionServiceInt <span class="cov8" title="1">{
         redisRepo := NewGurdianRedisSessionRepository(redisClient)
         return NewGourdianSessionService(redisRepo, config)
 }</span>
