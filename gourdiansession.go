@@ -427,10 +427,11 @@ func (r *GurdianRedisSessionRepository) ValidateSessionByID(ctx context.Context,
 	if session.ExpiresAt.Before(time.Now()) {
 		// Update session status to expired
 		session.Status = SessionStatusExpired
-		// Don't immediately delete - just mark as expired
-		_, err = r.UpdateSession(ctx, session)
-		if err != nil {
-			log.Printf("failed to mark session as expired: %v", err)
+		_, updateErr := r.UpdateSession(ctx, session)
+		if updateErr != nil {
+			// If we can't update, still return expired status but log the error
+			log.Printf("failed to mark session as expired: %v", updateErr)
+			return nil, fmt.Errorf("%w: session has expired", ErrInvalidSession)
 		}
 		return nil, fmt.Errorf("%w: session has expired", ErrInvalidSession)
 	}

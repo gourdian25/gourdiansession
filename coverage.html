@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (78.9%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (78.7%)</option>
 				
 				</select>
 			</div>
@@ -498,10 +498,11 @@ func (r *GurdianRedisSessionRepository) ValidateSessionByID(ctx context.Context,
         <span class="cov8" title="1">if session.ExpiresAt.Before(time.Now()) </span><span class="cov0" title="0">{
                 // Update session status to expired
                 session.Status = SessionStatusExpired
-                // Don't immediately delete - just mark as expired
-                _, err = r.UpdateSession(ctx, session)
-                if err != nil </span><span class="cov0" title="0">{
-                        log.Printf("failed to mark session as expired: %v", err)
+                _, updateErr := r.UpdateSession(ctx, session)
+                if updateErr != nil </span><span class="cov0" title="0">{
+                        // If we can't update, still return expired status but log the error
+                        log.Printf("failed to mark session as expired: %v", updateErr)
+                        return nil, fmt.Errorf("%w: session has expired", ErrInvalidSession)
                 }</span>
                 <span class="cov0" title="0">return nil, fmt.Errorf("%w: session has expired", ErrInvalidSession)</span>
         }
