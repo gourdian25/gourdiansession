@@ -1,83 +1,154 @@
 // service_test.go
 package gourdiansession
 
-// import (
-// 	"context"
-// 	"testing"
-// 	"time"
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
 
-// 	"github.com/google/uuid"
-// 	"github.com/stretchr/testify/assert"
-// 	"github.com/stretchr/testify/require"
-// )
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
 
-// func TestSessionService_CreateSession(t *testing.T) {
-// 	client := setupTestRedis()
-// 	defer cleanupTestRedis(t, client)
+func TestSessionService_SessionDataOperations(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
 
-// 	repo := NewGurdianRedisSessionRepository(client)
-// 	svc := NewGourdianSessionService(repo, testConfig())
-// 	ctx := context.Background()
+	repo := NewGurdianRedisSessionRepository(client)
+	svc := NewGourdianSessionService(repo, testConfig())
+	ctx := context.Background()
 
-// 	t.Run("successful creation", func(t *testing.T) {
-// 		userID := uuid.New()
-// 		username := "testuser"
-// 		ip := "192.168.1.1"
-// 		ua := "test-agent"
-// 		roles := []Role{
-// 			{
-// 				Name: "user",
-// 				Permissions: []Permission{
-// 					{
-// 						Name:     "read",
-// 						Resource: "profile",
-// 						Action:   "read",
-// 					},
-// 				},
-// 			},
-// 		}
+	session, _ := createTestSession(t, svc)
 
-// 		session, err := svc.CreateSession(ctx, userID, username, &ip, &ua, roles)
-// 		require.NoError(t, err)
-// 		assert.Equal(t, userID, session.UserID)
-// 		assert.Equal(t, username, session.Username)
-// 		assert.Equal(t, ip, *session.IPAddress)
-// 		assert.Equal(t, ua, *session.UserAgent)
-// 		assert.Equal(t, SessionStatusActive, session.Status)
-// 		assert.True(t, session.Authenticated)
-// 	})
+	t.Run("set and get session data", func(t *testing.T) {
+		err := svc.SetSessionData(ctx, session.UUID, "testkey", "testvalue")
+		require.NoError(t, err)
 
-// 	t.Run("blocked user agent", func(t *testing.T) {
-// 		userID := uuid.New()
-// 		username := "testuser"
-// 		ip := "192.168.1.1"
-// 		ua := "badbot/1.0" // Matches blocked user agent in config
-// 		roles := []Role{}
+		val, err := svc.GetSessionData(ctx, session.UUID, "testkey")
+		require.NoError(t, err)
+		assert.Equal(t, "testvalue", val)
+	})
 
-// 		_, err := svc.CreateSession(ctx, userID, username, &ip, &ua, roles)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "user agent is blocked")
-// 	})
+	t.Run("delete session data", func(t *testing.T) {
+		err := svc.SetSessionData(ctx, session.UUID, "todelete", "value")
+		require.NoError(t, err)
 
-// 	t.Run("max sessions per user", func(t *testing.T) {
-// 		userID := uuid.New()
-// 		username := "testuser"
-// 		ip := "192.168.1.1"
-// 		ua := "test-agent"
-// 		roles := []Role{}
+		err = svc.DeleteSessionData(ctx, session.UUID, "todelete")
+		require.NoError(t, err)
 
-// 		// Create max allowed sessions
-// 		for i := 0; i < testConfig().MaxUserSessions; i++ {
-// 			_, err := svc.CreateSession(ctx, userID, username, &ip, &ua, roles)
-// 			require.NoError(t, err)
-// 		}
+		_, err = svc.GetSessionData(ctx, session.UUID, "todelete")
+		require.Error(t, err)
+	})
 
-// 		// Next one should fail
-// 		_, err := svc.CreateSession(ctx, userID, username, &ip, &ua, roles)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "maximum number of sessions reached")
-// 	})
-// }
+	t.Run("get from invalid session", func(t *testing.T) {
+		_, err := svc.GetSessionData(ctx, uuid.New(), "anykey")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session validation failed")
+	})
+}
+
+func TestSessionService_TemporaryDataOperations(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	repo := NewGurdianRedisSessionRepository(client)
+	svc := NewGourdianSessionService(repo, testConfig())
+	ctx := context.Background()
+
+	t.Run("set and get temporary data", func(t *testing.T) {
+		err := svc.SetTemporaryData(ctx, "tempkey", "tempvalue", 1*time.Minute)
+		require.NoError(t, err)
+
+		val, err := svc.GetTemporaryData(ctx, "tempkey")
+		require.NoError(t, err)
+		assert.Equal(t, "tempvalue", val)
+	})
+
+	t.Run("temporary data expiration", func(t *testing.T) {
+		err := svc.SetTemporaryData(ctx, "shortlive", "value", 1*time.Millisecond)
+		require.NoError(t, err)
+
+		time.Sleep(2 * time.Millisecond)
+
+		_, err = svc.GetTemporaryData(ctx, "shortlive")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "temporary data not found")
+	})
+
+	t.Run("delete temporary data", func(t *testing.T) {
+		err := svc.SetTemporaryData(ctx, "todelete", "value", 1*time.Minute)
+		require.NoError(t, err)
+
+		err = svc.DeleteTemporaryData(ctx, "todelete")
+		require.NoError(t, err)
+
+		_, err = svc.GetTemporaryData(ctx, "todelete")
+		require.Error(t, err)
+	})
+}
+
+func TestSessionService_CreateSession(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
+
+	// Create a modified config for testing
+	testCfg := &GourdianSessionConfig{
+		MaxUserSessions:         3, // Set a low limit for testing
+		MaxSessionsPerDevice:    2, // Should be lower than MaxUserSessions for this test
+		AllowConcurrentSessions: true,
+		TrackClientDevices:      true, // This was missing
+		DefaultSessionDuration:  30 * time.Minute,
+		BlockedUserAgents:       []string{"badbot"},
+	}
+
+	repo := NewGurdianRedisSessionRepository(client)
+	svc := NewGourdianSessionService(repo, testCfg)
+	ctx := context.Background()
+
+	// ... other test cases ...
+
+	t.Run("max sessions per user", func(t *testing.T) {
+		userID := uuid.New()
+		username := "testuser"
+		ip := "192.168.1.1"
+		ua := "test-agent"
+		roles := []Role{}
+
+		// Create max allowed sessions
+		for i := 0; i < testCfg.MaxUserSessions; i++ {
+			// Use different user agents to avoid hitting device limit
+			uniqueUA := fmt.Sprintf("%s-%d", ua, i)
+			_, err := svc.CreateSession(ctx, userID, username, &ip, &uniqueUA, roles)
+			require.NoError(t, err)
+		}
+
+		// Next one should fail with user session limit
+		_, err := svc.CreateSession(ctx, userID, username, &ip, &ua, roles)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "maximum number of sessions reached for user")
+	})
+
+	t.Run("max sessions per device", func(t *testing.T) {
+		userID := uuid.New()
+		username := "testuser"
+		ip := "192.168.1.1"
+		ua := "test-agent" // Same UA for all sessions
+		roles := []Role{}
+
+		// Create max allowed device sessions (but stay under user session limit)
+		for i := 0; i < testCfg.MaxSessionsPerDevice; i++ {
+			_, err := svc.CreateSession(ctx, userID, username, &ip, &ua, roles)
+			require.NoError(t, err)
+		}
+
+		// Next one should fail with device limit (even though we're under user session limit)
+		_, err := svc.CreateSession(ctx, userID, username, &ip, &ua, roles)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "maximum number of sessions reached for this device")
+	})
+}
 
 // func TestSessionService_ValidateSession(t *testing.T) {
 // 	client := setupTestRedis()
@@ -243,82 +314,5 @@ package gourdiansession
 // 		valid2, err := svc.ValidateSession(ctx, session2.UUID)
 // 		require.Error(t, err)
 // 		assert.Nil(t, valid2)
-// 	})
-// }
-
-// func TestSessionService_SessionDataOperations(t *testing.T) {
-// 	client := setupTestRedis()
-// 	defer cleanupTestRedis(t, client)
-
-// 	repo := NewGurdianRedisSessionRepository(client)
-// 	svc := NewGourdianSessionService(repo, testConfig())
-// 	ctx := context.Background()
-
-// 	session, _ := createTestSession(t, svc)
-
-// 	t.Run("set and get session data", func(t *testing.T) {
-// 		err := svc.SetSessionData(ctx, session.UUID, "testkey", "testvalue")
-// 		require.NoError(t, err)
-
-// 		val, err := svc.GetSessionData(ctx, session.UUID, "testkey")
-// 		require.NoError(t, err)
-// 		assert.Equal(t, "testvalue", val)
-// 	})
-
-// 	t.Run("delete session data", func(t *testing.T) {
-// 		err := svc.SetSessionData(ctx, session.UUID, "todelete", "value")
-// 		require.NoError(t, err)
-
-// 		err = svc.DeleteSessionData(ctx, session.UUID, "todelete")
-// 		require.NoError(t, err)
-
-// 		_, err = svc.GetSessionData(ctx, session.UUID, "todelete")
-// 		require.Error(t, err)
-// 	})
-
-// 	t.Run("get from invalid session", func(t *testing.T) {
-// 		_, err := svc.GetSessionData(ctx, uuid.New(), "anykey")
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session validation failed")
-// 	})
-// }
-
-// func TestSessionService_TemporaryDataOperations(t *testing.T) {
-// 	client := setupTestRedis()
-// 	defer cleanupTestRedis(t, client)
-
-// 	repo := NewGurdianRedisSessionRepository(client)
-// 	svc := NewGourdianSessionService(repo, testConfig())
-// 	ctx := context.Background()
-
-// 	t.Run("set and get temporary data", func(t *testing.T) {
-// 		err := svc.SetTemporaryData(ctx, "tempkey", "tempvalue", 1*time.Minute)
-// 		require.NoError(t, err)
-
-// 		val, err := svc.GetTemporaryData(ctx, "tempkey")
-// 		require.NoError(t, err)
-// 		assert.Equal(t, "tempvalue", val)
-// 	})
-
-// 	t.Run("temporary data expiration", func(t *testing.T) {
-// 		err := svc.SetTemporaryData(ctx, "shortlive", "value", 1*time.Millisecond)
-// 		require.NoError(t, err)
-
-// 		time.Sleep(2 * time.Millisecond)
-
-// 		_, err = svc.GetTemporaryData(ctx, "shortlive")
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "temporary data not found")
-// 	})
-
-// 	t.Run("delete temporary data", func(t *testing.T) {
-// 		err := svc.SetTemporaryData(ctx, "todelete", "value", 1*time.Minute)
-// 		require.NoError(t, err)
-
-// 		err = svc.DeleteTemporaryData(ctx, "todelete")
-// 		require.NoError(t, err)
-
-// 		_, err = svc.GetTemporaryData(ctx, "todelete")
-// 		require.Error(t, err)
 // 	})
 // }
