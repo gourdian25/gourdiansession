@@ -557,19 +557,19 @@ func TestSessionService_EnforceSessionLimits(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	// Create a config with strict limits
-	strictConfig := &GourdianSessionConfig{
-		MaxUserSessions:         1,
-		MaxSessionsPerDevice:    1,
-		MaxIPConnections:        1,
-		AllowConcurrentSessions: false,
+	// Create a config that specifically tests single session enforcement
+	singleSessionConfig := &GourdianSessionConfig{
+		MaxUserSessions:         5,     // Set high enough not to trigger
+		MaxSessionsPerDevice:    5,     // Set high enough not to trigger
+		MaxIPConnections:        5,     // Set high enough not to trigger
+		AllowConcurrentSessions: false, // This is what we're testing
 		TrackIPAddresses:        true,
 		TrackClientDevices:      true,
 		DefaultSessionDuration:  30 * time.Minute,
 	}
 
 	repo := NewGurdianRedisSessionRepository(client)
-	svc := NewGourdianSessionService(repo, strictConfig)
+	svc := NewGourdianSessionService(repo, singleSessionConfig)
 	ctx := context.Background()
 
 	userID := uuid.New()
@@ -578,20 +578,29 @@ func TestSessionService_EnforceSessionLimits(t *testing.T) {
 
 	t.Run("enforce single session", func(t *testing.T) {
 		// Create first session
-		_, err := svc.CreateSession(ctx, userID, "testuser", &ip, &ua, []Role{})
+		sess1, err := svc.CreateSession(ctx, userID, "testuser", &ip, &ua, []Role{})
 		require.NoError(t, err)
 
-		// Try to create another session - should fail due to single session policy
+		// Try to create another session - should work but revoke the first one
 		_, err = svc.CreateSession(ctx, userID, "testuser", &ip, &ua, []Role{})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to enforce single session policy")
+		require.NoError(t, err)
+
+		// Verify first session was revoked
+		updatedSess1, err := svc.GetSession(ctx, sess1.UUID)
+		if assert.NoError(t, err) {
+			assert.Equal(t, SessionStatusRevoked, updatedSess1.Status)
+		} else {
+			// If we get "not found", that's also acceptable since the session might have been cleaned up
+			assert.ErrorIs(t, err, ErrNotFound)
+		}
 	})
 
 	t.Run("enforce with nil IP and UA", func(t *testing.T) {
 		// Should work with nil IP/UA when not tracking them
 		looseConfig := &GourdianSessionConfig{
-			TrackIPAddresses:   false,
-			TrackClientDevices: false,
+			TrackIPAddresses:        false,
+			TrackClientDevices:      false,
+			AllowConcurrentSessions: false,
 		}
 		looseSvc := NewGourdianSessionService(repo, looseConfig)
 

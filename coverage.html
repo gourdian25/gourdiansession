@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (78.5%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (78.9%)</option>
 				
 				</select>
 			</div>
@@ -417,13 +417,21 @@ func (r *GurdianRedisSessionRepository) RevokeUserSessions(ctx context.Context, 
                 return err
         }</span>
 
-        <span class="cov8" title="1">for _, session := range sessions </span><span class="cov8" title="1">{
+        <span class="cov8" title="1">now := time.Now()
+        for _, session := range sessions </span><span class="cov8" title="1">{
                 if session.Status == SessionStatusActive </span><span class="cov8" title="1">{
                         session.Status = SessionStatusRevoked
-                        session.ExpiresAt = time.Now()
-                        _, err = r.UpdateSession(ctx, session)
+                        session.ExpiresAt = now.Add(1 * time.Minute) // Short expiration for revoked sessions
+
+                        // Update the session in Redis
+                        sessionJSON, err := json.Marshal(session)
                         if err != nil </span><span class="cov0" title="0">{
-                                return err
+                                return fmt.Errorf("failed to marshal session: %w", err)
+                        }</span>
+
+                        <span class="cov8" title="1">err = r.client.Set(ctx, r.sessionKey(session.UUID), sessionJSON, time.Until(session.ExpiresAt)).Err()
+                        if err != nil </span><span class="cov0" title="0">{
+                                return fmt.Errorf("failed to update session in Redis: %w", err)
                         }</span>
                 }
         }
@@ -1092,8 +1100,9 @@ func (s *GourdianSessionService) EnforceSessionLimits(ctx context.Context, userI
                 return err
         }</span>
 
-        <span class="cov8" title="1">if !s.config.AllowConcurrentSessions </span><span class="cov0" title="0">{
-                if err := s.RevokeOtherUserSessions(ctx, userID, uuid.Nil); err != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if !s.config.AllowConcurrentSessions </span><span class="cov8" title="1">{
+                // When creating a new session, we want to revoke ALL existing sessions
+                if err := s.repo.RevokeUserSessions(ctx, userID); err != nil </span><span class="cov0" title="0">{
                         return fmt.Errorf("failed to enforce single session policy: %w", err)
                 }</span>
         }
@@ -1102,7 +1111,7 @@ func (s *GourdianSessionService) EnforceSessionLimits(ctx context.Context, userI
 }
 
 func (s *GourdianSessionService) isUserAgentBlocked(userAgent string) bool <span class="cov8" title="1">{
-        if len(s.config.BlockedUserAgents) == 0 </span><span class="cov0" title="0">{
+        if len(s.config.BlockedUserAgents) == 0 </span><span class="cov8" title="1">{
                 return false
         }</span>
 

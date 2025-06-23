@@ -346,13 +346,21 @@ func (r *GurdianRedisSessionRepository) RevokeUserSessions(ctx context.Context, 
 		return err
 	}
 
+	now := time.Now()
 	for _, session := range sessions {
 		if session.Status == SessionStatusActive {
 			session.Status = SessionStatusRevoked
-			session.ExpiresAt = time.Now()
-			_, err = r.UpdateSession(ctx, session)
+			session.ExpiresAt = now.Add(1 * time.Minute) // Short expiration for revoked sessions
+
+			// Update the session in Redis
+			sessionJSON, err := json.Marshal(session)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to marshal session: %w", err)
+			}
+
+			err = r.client.Set(ctx, r.sessionKey(session.UUID), sessionJSON, time.Until(session.ExpiresAt)).Err()
+			if err != nil {
+				return fmt.Errorf("failed to update session in Redis: %w", err)
 			}
 		}
 	}
@@ -1022,7 +1030,8 @@ func (s *GourdianSessionService) EnforceSessionLimits(ctx context.Context, userI
 	}
 
 	if !s.config.AllowConcurrentSessions {
-		if err := s.RevokeOtherUserSessions(ctx, userID, uuid.Nil); err != nil {
+		// When creating a new session, we want to revoke ALL existing sessions
+		if err := s.repo.RevokeUserSessions(ctx, userID); err != nil {
 			return fmt.Errorf("failed to enforce single session policy: %w", err)
 		}
 	}
