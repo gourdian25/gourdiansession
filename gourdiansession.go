@@ -681,30 +681,33 @@ func (s *GourdianSessionService) GetSession(ctx context.Context, sessionID uuid.
 }
 
 func (s *GourdianSessionService) RefreshSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) {
-	if sessionID == uuid.Nil {
-		return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
-	}
-
 	session, err := s.ValidateSession(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 
-	renewalTime := session.ExpiresAt.Add(-s.config.SessionRenewalWindow)
-	if time.Now().Before(renewalTime) {
-		return session, nil
+	now := time.Now()
+	timeRemaining := session.ExpiresAt.Sub(now)
+
+	// Debug log
+	log.Printf("Now: %v, TimeRemaining: %v, RenewalWindow: %v", now, timeRemaining, s.config.SessionRenewalWindow)
+
+	// Renew if we're within the renewal window
+	if timeRemaining <= s.config.SessionRenewalWindow {
+		newExpiry := now.Add(s.config.DefaultSessionDuration)
+		log.Printf("Extending session from %v to %v", session.ExpiresAt, newExpiry)
+
+		session.ExpiresAt = newExpiry
+		session.LastActivity = now
+
+		updated, err := s.repo.UpdateSession(ctx, session)
+		if err != nil {
+			return nil, fmt.Errorf("failed to update session: %w", err)
+		}
+		return updated, nil
 	}
 
-	newExpiry := time.Now().Add(s.config.DefaultSessionDuration)
-	session.ExpiresAt = newExpiry
-	session.LastActivity = time.Now()
-
-	updatedSession, err := s.repo.UpdateSession(ctx, session)
-	if err != nil {
-		return nil, fmt.Errorf("failed to update session: %w", err)
-	}
-
-	return updatedSession, nil
+	return session, nil
 }
 
 func (s *GourdianSessionService) ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) (*GourdianSessionType, error) {

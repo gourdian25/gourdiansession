@@ -216,37 +216,49 @@ func TestSessionService_RefreshSession(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("refresh within renewal window", func(t *testing.T) {
-		// Create a custom config with specific renewal window
+		// Create a custom config
 		cfg := testConfig()
 		cfg.DefaultSessionDuration = 1 * time.Hour
 		cfg.SessionRenewalWindow = 30 * time.Minute
+		cfg.IdleTimeoutDuration = 0 // Disable idle timeout
 		svc := NewGourdianSessionService(repo, cfg)
 
-		session, _ := createTestSession(t, svc)
-		originalExpiry := session.ExpiresAt
+		// Set up test time points
+		now := time.Now()
+		originalExpiry := now.Add(25 * time.Minute) // Session has 25 minutes remaining (within 30m window)
 
-		// Set last activity to put us within renewal window
-		newActivity := time.Now().Add(-25 * time.Minute)
-		session.LastActivity = newActivity
+		// Create test session
+		session, _ := createTestSession(t, svc)
+		session.CreatedAt = now.Add(-35 * time.Minute)
+		session.LastActivity = now.Add(-5 * time.Minute)
+		session.ExpiresAt = originalExpiry
 		_, err := repo.UpdateSession(ctx, session)
 		require.NoError(t, err)
 
+		// Should extend since we're within renewal window (25m < 30m)
 		refreshed, err := svc.RefreshSession(ctx, session.UUID)
 		require.NoError(t, err)
-		assert.True(t, refreshed.ExpiresAt.After(originalExpiry))
+
+		// New expiry should be now + 1 hour
+		expectedExpiry := now.Add(cfg.DefaultSessionDuration)
+		assert.True(t, refreshed.ExpiresAt.After(originalExpiry),
+			"Expiry time should have been extended")
+		assert.WithinDuration(t, expectedExpiry, refreshed.ExpiresAt, time.Second,
+			"New expiry should be now + default duration")
 	})
 
 	t.Run("refresh outside renewal window", func(t *testing.T) {
-		// Create a custom config with specific renewal window
+		// Create a custom config with specific renewal window and disabled idle timeout
 		cfg := testConfig()
 		cfg.DefaultSessionDuration = 1 * time.Hour
 		cfg.SessionRenewalWindow = 10 * time.Minute
+		cfg.IdleTimeoutDuration = 0 // Disable idle timeout for this test
 		svc := NewGourdianSessionService(repo, cfg)
 
 		session, _ := createTestSession(t, svc)
-		originalExpiry := session.ExpiresAt
+		originalExpiry := session.ExpiresAt.UTC() // Ensure UTC for comparison
 
-		// Set last activity to be outside renewal window
+		// Set last activity to be outside renewal window but recent enough
 		newActivity := time.Now().Add(-5 * time.Minute)
 		session.LastActivity = newActivity
 		_, err := repo.UpdateSession(ctx, session)
@@ -254,68 +266,68 @@ func TestSessionService_RefreshSession(t *testing.T) {
 
 		refreshed, err := svc.RefreshSession(ctx, session.UUID)
 		require.NoError(t, err)
-		assert.Equal(t, originalExpiry, refreshed.ExpiresAt)
+		assert.Equal(t, originalExpiry, refreshed.ExpiresAt.UTC()) // Compare UTC times
 	})
 }
 
-// func TestSessionService_RevokeOperations(t *testing.T) {
-// 	client := setupTestRedis()
-// 	defer cleanupTestRedis(t, client)
+func TestSessionService_RevokeOperations(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
 
-// 	repo := NewGurdianRedisSessionRepository(client)
-// 	svc := NewGourdianSessionService(repo, testConfig())
-// 	ctx := context.Background()
+	repo := NewGurdianRedisSessionRepository(client)
+	svc := NewGourdianSessionService(repo, testConfig())
+	ctx := context.Background()
 
-// 	t.Run("revoke single session", func(t *testing.T) {
-// 		session, _ := createTestSession(t, svc)
+	t.Run("revoke single session", func(t *testing.T) {
+		session, _ := createTestSession(t, svc)
 
-// 		err := svc.RevokeSession(ctx, session.UUID)
-// 		require.NoError(t, err)
+		err := svc.RevokeSession(ctx, session.UUID)
+		require.NoError(t, err)
 
-// 		validated, err := svc.ValidateSession(ctx, session.UUID)
-// 		require.Error(t, err)
-// 		assert.Nil(t, validated)
-// 		assert.Contains(t, err.Error(), "session is not active")
-// 	})
+		validated, err := svc.ValidateSession(ctx, session.UUID)
+		require.Error(t, err)
+		assert.Nil(t, validated)
+		assert.Contains(t, err.Error(), "session is not active")
+	})
 
-// 	t.Run("revoke all user sessions", func(t *testing.T) {
-// 		_, userID := createTestSession(t, svc)
+	t.Run("revoke all user sessions", func(t *testing.T) {
+		_, userID := createTestSession(t, svc)
 
-// 		// Create multiple sessions for the user
-// 		for i := 0; i < 3; i++ {
-// 			_, err := svc.CreateSession(ctx, userID, "testuser", strPtr("192.168.1.1"), strPtr("test-agent"), []Role{})
-// 			require.NoError(t, err)
-// 		}
+		// Create multiple sessions for the user
+		for i := 0; i < 3; i++ {
+			_, err := svc.CreateSession(ctx, userID, "testuser", strPtr("192.168.1.1"), strPtr("test-agent"), []Role{})
+			require.NoError(t, err)
+		}
 
-// 		activeBefore, err := svc.GetActiveUserSessions(ctx, userID)
-// 		require.NoError(t, err)
-// 		assert.True(t, len(activeBefore) > 0)
+		activeBefore, err := svc.GetActiveUserSessions(ctx, userID)
+		require.NoError(t, err)
+		assert.True(t, len(activeBefore) > 0)
 
-// 		err = svc.RevokeAllUserSessions(ctx, userID)
-// 		require.NoError(t, err)
+		err = svc.RevokeAllUserSessions(ctx, userID)
+		require.NoError(t, err)
 
-// 		activeAfter, err := svc.GetActiveUserSessions(ctx, userID)
-// 		require.NoError(t, err)
-// 		assert.Equal(t, 0, len(activeAfter))
-// 	})
+		activeAfter, err := svc.GetActiveUserSessions(ctx, userID)
+		require.NoError(t, err)
+		assert.Equal(t, 0, len(activeAfter))
+	})
 
-// 	t.Run("revoke other user sessions", func(t *testing.T) {
-// 		session1, userID := createTestSession(t, svc)
-// 		session2, err := svc.CreateSession(ctx, userID, "testuser", strPtr("192.168.1.1"), strPtr("test-agent"), []Role{})
-// 		require.NoError(t, err)
+	t.Run("revoke other user sessions", func(t *testing.T) {
+		session1, userID := createTestSession(t, svc)
+		session2, err := svc.CreateSession(ctx, userID, "testuser", strPtr("192.168.1.1"), strPtr("test-agent"), []Role{})
+		require.NoError(t, err)
 
-// 		// Revoke all except session1
-// 		err = svc.RevokeOtherUserSessions(ctx, userID, session1.UUID)
-// 		require.NoError(t, err)
+		// Revoke all except session1
+		err = svc.RevokeOtherUserSessions(ctx, userID, session1.UUID)
+		require.NoError(t, err)
 
-// 		// session1 should still be active
-// 		valid1, err := svc.ValidateSession(ctx, session1.UUID)
-// 		require.NoError(t, err)
-// 		assert.NotNil(t, valid1)
+		// session1 should still be active
+		valid1, err := svc.ValidateSession(ctx, session1.UUID)
+		require.NoError(t, err)
+		assert.NotNil(t, valid1)
 
-// 		// session2 should be revoked
-// 		valid2, err := svc.ValidateSession(ctx, session2.UUID)
-// 		require.Error(t, err)
-// 		assert.Nil(t, valid2)
-// 	})
-// }
+		// session2 should be revoked
+		valid2, err := svc.ValidateSession(ctx, session2.UUID)
+		require.Error(t, err)
+		assert.Nil(t, valid2)
+	})
+}

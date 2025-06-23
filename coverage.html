@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (63.7%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (66.8%)</option>
 				
 				</select>
 			</div>
@@ -751,31 +751,34 @@ func (s *GourdianSessionService) GetSession(ctx context.Context, sessionID uuid.
         <span class="cov0" title="0">return session, nil</span>
 }
 
-func (s *GourdianSessionService) RefreshSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) <span class="cov0" title="0">{
-        if sessionID == uuid.Nil </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov0" title="0">session, err := s.ValidateSession(ctx, sessionID)
+func (s *GourdianSessionService) RefreshSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) <span class="cov8" title="1">{
+        session, err := s.ValidateSession(ctx, sessionID)
         if err != nil </span><span class="cov0" title="0">{
                 return nil, err
         }</span>
 
-        <span class="cov0" title="0">renewalTime := session.ExpiresAt.Add(-s.config.SessionRenewalWindow)
-        if time.Now().Before(renewalTime) </span><span class="cov0" title="0">{
-                return session, nil
-        }</span>
+        <span class="cov8" title="1">now := time.Now()
+        timeRemaining := session.ExpiresAt.Sub(now)
 
-        <span class="cov0" title="0">newExpiry := time.Now().Add(s.config.DefaultSessionDuration)
-        session.ExpiresAt = newExpiry
-        session.LastActivity = time.Now()
+        // Debug log
+        log.Printf("Now: %v, TimeRemaining: %v, RenewalWindow: %v", now, timeRemaining, s.config.SessionRenewalWindow)
 
-        updatedSession, err := s.repo.UpdateSession(ctx, session)
-        if err != nil </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("failed to update session: %w", err)
-        }</span>
+        // Renew if we're within the renewal window
+        if timeRemaining &lt;= s.config.SessionRenewalWindow </span><span class="cov8" title="1">{
+                newExpiry := now.Add(s.config.DefaultSessionDuration)
+                log.Printf("Extending session from %v to %v", session.ExpiresAt, newExpiry)
 
-        <span class="cov0" title="0">return updatedSession, nil</span>
+                session.ExpiresAt = newExpiry
+                session.LastActivity = now
+
+                updated, err := s.repo.UpdateSession(ctx, session)
+                if err != nil </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("failed to update session: %w", err)
+                }</span>
+                <span class="cov8" title="1">return updated, nil</span>
+        }
+
+        <span class="cov8" title="1">return session, nil</span>
 }
 
 func (s *GourdianSessionService) ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) (*GourdianSessionType, error) <span class="cov0" title="0">{
