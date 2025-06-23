@@ -154,8 +154,9 @@ func TestSessionService_ValidateSession(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
+	testCfg := testConfig()
 	repo := NewGurdianRedisSessionRepository(client)
-	svc := NewGourdianSessionService(repo, testConfig())
+	svc := NewGourdianSessionService(repo, testCfg)
 	ctx := context.Background()
 
 	t.Run("valid session", func(t *testing.T) {
@@ -173,17 +174,19 @@ func TestSessionService_ValidateSession(t *testing.T) {
 	})
 
 	t.Run("expired session", func(t *testing.T) {
-		// Create a custom config with very short session duration
-		cfg := testConfig()
-		cfg.DefaultSessionDuration = 1 * time.Millisecond
-		svc := NewGourdianSessionService(repo, cfg)
-
+		// Create a session with very short expiration
 		session, _ := createTestSession(t, svc)
 
-		// Wait for session to expire
-		time.Sleep(2 * time.Millisecond)
+		// Manually set expiration to past
+		session.ExpiresAt = time.Now().Add(-1 * time.Second)
+		_, err := repo.UpdateSession(ctx, session)
+		require.NoError(t, err)
 
-		_, err := svc.ValidateSession(ctx, session.UUID)
+		// Wait a bit to ensure expiration
+		time.Sleep(10 * time.Millisecond)
+
+		// Validate should return expired error
+		_, err = svc.ValidateSession(ctx, session.UUID)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "session has expired")
 	})
@@ -205,55 +208,55 @@ func TestSessionService_ValidateSession(t *testing.T) {
 	})
 }
 
-// func TestSessionService_RefreshSession(t *testing.T) {
-// 	client := setupTestRedis()
-// 	defer cleanupTestRedis(t, client)
+func TestSessionService_RefreshSession(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
 
-// 	repo := NewGurdianRedisSessionRepository(client)
-// 	ctx := context.Background()
+	repo := NewGurdianRedisSessionRepository(client)
+	ctx := context.Background()
 
-// 	t.Run("refresh within renewal window", func(t *testing.T) {
-// 		// Create a custom config with specific renewal window
-// 		cfg := testConfig()
-// 		cfg.DefaultSessionDuration = 1 * time.Hour
-// 		cfg.SessionRenewalWindow = 30 * time.Minute
-// 		svc := NewGourdianSessionService(repo, cfg)
+	t.Run("refresh within renewal window", func(t *testing.T) {
+		// Create a custom config with specific renewal window
+		cfg := testConfig()
+		cfg.DefaultSessionDuration = 1 * time.Hour
+		cfg.SessionRenewalWindow = 30 * time.Minute
+		svc := NewGourdianSessionService(repo, cfg)
 
-// 		session, _ := createTestSession(t, svc)
-// 		originalExpiry := session.ExpiresAt
+		session, _ := createTestSession(t, svc)
+		originalExpiry := session.ExpiresAt
 
-// 		// Set last activity to put us within renewal window
-// 		newActivity := time.Now().Add(-25 * time.Minute)
-// 		session.LastActivity = newActivity
-// 		_, err := repo.UpdateSession(ctx, session)
-// 		require.NoError(t, err)
+		// Set last activity to put us within renewal window
+		newActivity := time.Now().Add(-25 * time.Minute)
+		session.LastActivity = newActivity
+		_, err := repo.UpdateSession(ctx, session)
+		require.NoError(t, err)
 
-// 		refreshed, err := svc.RefreshSession(ctx, session.UUID)
-// 		require.NoError(t, err)
-// 		assert.True(t, refreshed.ExpiresAt.After(originalExpiry))
-// 	})
+		refreshed, err := svc.RefreshSession(ctx, session.UUID)
+		require.NoError(t, err)
+		assert.True(t, refreshed.ExpiresAt.After(originalExpiry))
+	})
 
-// 	t.Run("refresh outside renewal window", func(t *testing.T) {
-// 		// Create a custom config with specific renewal window
-// 		cfg := testConfig()
-// 		cfg.DefaultSessionDuration = 1 * time.Hour
-// 		cfg.SessionRenewalWindow = 10 * time.Minute
-// 		svc := NewGourdianSessionService(repo, cfg)
+	t.Run("refresh outside renewal window", func(t *testing.T) {
+		// Create a custom config with specific renewal window
+		cfg := testConfig()
+		cfg.DefaultSessionDuration = 1 * time.Hour
+		cfg.SessionRenewalWindow = 10 * time.Minute
+		svc := NewGourdianSessionService(repo, cfg)
 
-// 		session, _ := createTestSession(t, svc)
-// 		originalExpiry := session.ExpiresAt
+		session, _ := createTestSession(t, svc)
+		originalExpiry := session.ExpiresAt
 
-// 		// Set last activity to be outside renewal window
-// 		newActivity := time.Now().Add(-5 * time.Minute)
-// 		session.LastActivity = newActivity
-// 		_, err := repo.UpdateSession(ctx, session)
-// 		require.NoError(t, err)
+		// Set last activity to be outside renewal window
+		newActivity := time.Now().Add(-5 * time.Minute)
+		session.LastActivity = newActivity
+		_, err := repo.UpdateSession(ctx, session)
+		require.NoError(t, err)
 
-// 		refreshed, err := svc.RefreshSession(ctx, session.UUID)
-// 		require.NoError(t, err)
-// 		assert.Equal(t, originalExpiry, refreshed.ExpiresAt)
-// 	})
-// }
+		refreshed, err := svc.RefreshSession(ctx, session.UUID)
+		require.NoError(t, err)
+		assert.Equal(t, originalExpiry, refreshed.ExpiresAt)
+	})
+}
 
 // func TestSessionService_RevokeOperations(t *testing.T) {
 // 	client := setupTestRedis()
