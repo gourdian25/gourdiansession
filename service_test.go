@@ -504,82 +504,98 @@ func TestSessionService_ValidateSessionWithContext(t *testing.T) {
 	})
 }
 
-// func TestSessionService_GetUserSessions(t *testing.T) {
-// 	client := setupTestRedis()
-// 	defer cleanupTestRedis(t, client)
+func TestSessionService_GetUserSessions(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
 
-// 	repo := NewGurdianRedisSessionRepository(client)
-// 	svc := NewGourdianSessionService(repo, testConfig())
-// 	ctx := context.Background()
+	repo := NewGurdianRedisSessionRepository(client)
+	svc := NewGourdianSessionService(repo, testConfig())
+	ctx := context.Background()
 
-// 	t.Run("get sessions for user with none", func(t *testing.T) {
-// 		sessions, err := svc.GetUserSessions(ctx, uuid.New())
-// 		require.NoError(t, err)
-// 		assert.Empty(t, sessions)
-// 	})
+	t.Run("get sessions for user with none", func(t *testing.T) {
+		sessions, err := svc.GetUserSessions(ctx, uuid.New())
+		require.NoError(t, err)
+		assert.Empty(t, sessions)
+	})
 
-// 	t.Run("get sessions for user with multiple", func(t *testing.T) {
-// 		_, userID := createTestSession(t, svc)
-// 		session2, _ := createTestSession(t, svc)
-// 		session2.UserID = userID
-// 		_, err := repo.UpdateSession(ctx, session2)
-// 		require.NoError(t, err)
+	t.Run("get sessions for user with multiple", func(t *testing.T) {
+		// Create first session
+		session1, err := svc.CreateSession(ctx, uuid.New(), "user1", nil, nil, []Role{})
+		require.NoError(t, err)
+		userID := session1.UserID
 
-// 		sessions, err := svc.GetUserSessions(ctx, userID)
-// 		require.NoError(t, err)
-// 		assert.Len(t, sessions, 2)
-// 	})
+		// Create second session with same user ID
+		session2, err := svc.CreateSession(ctx, userID, "user1", nil, nil, []Role{})
+		require.NoError(t, err)
 
-// 	t.Run("get with nil user ID", func(t *testing.T) {
-// 		_, err := svc.GetUserSessions(ctx, uuid.Nil)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "user ID cannot be empty")
-// 	})
-// }
+		sessions, err := svc.GetUserSessions(ctx, userID)
+		require.NoError(t, err)
+		assert.Len(t, sessions, 2)
 
-// func TestSessionService_EnforceSessionLimits(t *testing.T) {
-// 	client := setupTestRedis()
-// 	defer cleanupTestRedis(t, client)
+		// Verify both sessions are present
+		var foundSession1, foundSession2 bool
+		for _, s := range sessions {
+			if s.UUID == session1.UUID {
+				foundSession1 = true
+			}
+			if s.UUID == session2.UUID {
+				foundSession2 = true
+			}
+		}
+		assert.True(t, foundSession1, "session1 not found in results")
+		assert.True(t, foundSession2, "session2 not found in results")
+	})
 
-// 	// Create a config with strict limits
-// 	strictConfig := &GourdianSessionConfig{
-// 		MaxUserSessions:         1,
-// 		MaxSessionsPerDevice:    1,
-// 		MaxIPConnections:        1,
-// 		AllowConcurrentSessions: false,
-// 		TrackIPAddresses:        true,
-// 		TrackClientDevices:      true,
-// 		DefaultSessionDuration:  30 * time.Minute,
-// 	}
+	t.Run("get with nil user ID", func(t *testing.T) {
+		_, err := svc.GetUserSessions(ctx, uuid.Nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "user ID cannot be empty")
+	})
+}
 
-// 	repo := NewGurdianRedisSessionRepository(client)
-// 	svc := NewGourdianSessionService(repo, strictConfig)
-// 	ctx := context.Background()
+func TestSessionService_EnforceSessionLimits(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
 
-// 	userID := uuid.New()
-// 	ip := "192.168.1.1"
-// 	ua := "test-agent"
+	// Create a config with strict limits
+	strictConfig := &GourdianSessionConfig{
+		MaxUserSessions:         1,
+		MaxSessionsPerDevice:    1,
+		MaxIPConnections:        1,
+		AllowConcurrentSessions: false,
+		TrackIPAddresses:        true,
+		TrackClientDevices:      true,
+		DefaultSessionDuration:  30 * time.Minute,
+	}
 
-// 	t.Run("enforce single session", func(t *testing.T) {
-// 		// Create first session
-// 		_, err := svc.CreateSession(ctx, userID, "testuser", &ip, &ua, []Role{})
-// 		require.NoError(t, err)
+	repo := NewGurdianRedisSessionRepository(client)
+	svc := NewGourdianSessionService(repo, strictConfig)
+	ctx := context.Background()
 
-// 		// Try to create another session - should fail due to single session policy
-// 		_, err = svc.CreateSession(ctx, userID, "testuser", &ip, &ua, []Role{})
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "failed to enforce single session policy")
-// 	})
+	userID := uuid.New()
+	ip := "192.168.1.1"
+	ua := "test-agent"
 
-// 	t.Run("enforce with nil IP and UA", func(t *testing.T) {
-// 		// Should work with nil IP/UA when not tracking them
-// 		looseConfig := &GourdianSessionConfig{
-// 			TrackIPAddresses:   false,
-// 			TrackClientDevices: false,
-// 		}
-// 		looseSvc := NewGourdianSessionService(repo, looseConfig)
+	t.Run("enforce single session", func(t *testing.T) {
+		// Create first session
+		_, err := svc.CreateSession(ctx, userID, "testuser", &ip, &ua, []Role{})
+		require.NoError(t, err)
 
-// 		err := looseSvc.EnforceSessionLimits(ctx, userID, nil, nil)
-// 		require.NoError(t, err)
-// 	})
-// }
+		// Try to create another session - should fail due to single session policy
+		_, err = svc.CreateSession(ctx, userID, "testuser", &ip, &ua, []Role{})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to enforce single session policy")
+	})
+
+	t.Run("enforce with nil IP and UA", func(t *testing.T) {
+		// Should work with nil IP/UA when not tracking them
+		looseConfig := &GourdianSessionConfig{
+			TrackIPAddresses:   false,
+			TrackClientDevices: false,
+		}
+		looseSvc := NewGourdianSessionService(repo, looseConfig)
+
+		err := looseSvc.EnforceSessionLimits(ctx, userID, nil, nil)
+		require.NoError(t, err)
+	})
+}
