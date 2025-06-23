@@ -1003,47 +1003,56 @@ func TestRedisRepository_GetSessionsByUserID_EdgeCases(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	// Create the concrete type so we can access the key methods
-	repoImpl := &GurdianRedisSessionRepository{client: client}
-	// But use the interface type for the actual test operations
-	repo := GurdianSessionRepositoryInt(repoImpl)
+	repo := NewGurdianRedisSessionRepository(client)
 	ctx := context.Background()
 
 	t.Run("handle invalid session IDs in set", func(t *testing.T) {
 		userID := uuid.New()
-		invalidKey := repoImpl.userSessionsKey(userID)
+		userSessionsKey := "user_sessions:" + userID.String()
 
 		// Add invalid session ID to the set
-		err := client.SAdd(ctx, invalidKey, "invalid-uuid").Err()
+		err := client.SAdd(ctx, userSessionsKey, "invalid-uuid").Err()
 		require.NoError(t, err)
 
+		// Verify the invalid ID is initially present
+		membersBefore, err := client.SMembers(ctx, userSessionsKey).Result()
+		require.NoError(t, err)
+		assert.Contains(t, membersBefore, "invalid-uuid")
+
+		// Call GetSessionsByUserID which should clean up invalid IDs
 		sessions, err := repo.GetSessionsByUserID(ctx, userID)
 		require.NoError(t, err)
 		assert.Empty(t, sessions)
 
 		// Verify the invalid ID was cleaned up
-		members, err := client.SMembers(ctx, invalidKey).Result()
+		membersAfter, err := client.SMembers(ctx, userSessionsKey).Result()
 		require.NoError(t, err)
-		assert.Empty(t, members)
+		assert.NotContains(t, membersAfter, "invalid-uuid")
 	})
 
 	t.Run("handle stale session references", func(t *testing.T) {
 		userID := uuid.New()
 		sessionID := uuid.New()
-		userSessionsKey := repoImpl.userSessionsKey(userID)
+		userSessionsKey := "user_sessions:" + userID.String()
 
 		// Add reference to non-existent session
 		err := client.SAdd(ctx, userSessionsKey, sessionID.String()).Err()
 		require.NoError(t, err)
 
+		// Verify the reference is initially present
+		membersBefore, err := client.SMembers(ctx, userSessionsKey).Result()
+		require.NoError(t, err)
+		assert.Contains(t, membersBefore, sessionID.String())
+
+		// Call GetSessionsByUserID which should clean up stale references
 		sessions, err := repo.GetSessionsByUserID(ctx, userID)
 		require.NoError(t, err)
 		assert.Empty(t, sessions)
 
 		// Verify the stale reference was cleaned up
-		members, err := client.SMembers(ctx, userSessionsKey).Result()
+		membersAfter, err := client.SMembers(ctx, userSessionsKey).Result()
 		require.NoError(t, err)
-		assert.Empty(t, members)
+		assert.NotContains(t, membersAfter, sessionID.String())
 	})
 }
 

@@ -286,18 +286,19 @@ func (r *GurdianRedisSessionRepository) GetSessionsByUserID(ctx context.Context,
 	}
 
 	var sessions []*GourdianSessionType
+	var invalidSessionRefs []string
+
 	for _, sessionIDStr := range sessionIDs {
 		sessionID, err := uuid.Parse(sessionIDStr)
 		if err != nil {
-			log.Printf("invalid session ID in user sessions set: %s", sessionIDStr)
+			invalidSessionRefs = append(invalidSessionRefs, sessionIDStr)
 			continue
 		}
 
 		sessionJSON, err := r.client.Get(ctx, r.sessionKey(sessionID)).Result()
 		if err != nil {
 			if errors.Is(err, redis.Nil) {
-				// Clean up stale session reference
-				_ = r.client.SRem(ctx, r.userSessionsKey(userID), sessionIDStr)
+				invalidSessionRefs = append(invalidSessionRefs, sessionIDStr)
 				continue
 			}
 			return nil, fmt.Errorf("failed to get session %s: %w", sessionID, err)
@@ -310,6 +311,14 @@ func (r *GurdianRedisSessionRepository) GetSessionsByUserID(ctx context.Context,
 		}
 
 		sessions = append(sessions, &session)
+	}
+
+	// Clean up invalid session references in Redis
+	if len(invalidSessionRefs) > 0 {
+		_, err = r.client.SRem(ctx, r.userSessionsKey(userID), invalidSessionRefs).Result()
+		if err != nil {
+			log.Printf("failed to clean up invalid session references: %v", err)
+		}
 	}
 
 	return sessions, nil
