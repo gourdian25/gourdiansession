@@ -150,60 +150,60 @@ func TestSessionService_CreateSession(t *testing.T) {
 	})
 }
 
-// func TestSessionService_ValidateSession(t *testing.T) {
-// 	client := setupTestRedis()
-// 	defer cleanupTestRedis(t, client)
+func TestSessionService_ValidateSession(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
 
-// 	repo := NewGurdianRedisSessionRepository(client)
-// 	svc := NewGourdianSessionService(repo, testConfig())
-// 	ctx := context.Background()
+	repo := NewGurdianRedisSessionRepository(client)
+	svc := NewGourdianSessionService(repo, testConfig())
+	ctx := context.Background()
 
-// 	t.Run("valid session", func(t *testing.T) {
-// 		session, _ := createTestSession(t, svc)
+	t.Run("valid session", func(t *testing.T) {
+		session, _ := createTestSession(t, svc)
 
-// 		validated, err := svc.ValidateSession(ctx, session.UUID)
-// 		require.NoError(t, err)
-// 		assert.Equal(t, session.UUID, validated.UUID)
-// 	})
+		validated, err := svc.ValidateSession(ctx, session.UUID)
+		require.NoError(t, err)
+		assert.Equal(t, session.UUID, validated.UUID)
+	})
 
-// 	t.Run("invalid session ID", func(t *testing.T) {
-// 		_, err := svc.ValidateSession(ctx, uuid.Nil)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session ID cannot be empty")
-// 	})
+	t.Run("invalid session ID", func(t *testing.T) {
+		_, err := svc.ValidateSession(ctx, uuid.Nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session ID cannot be empty")
+	})
 
-// 	t.Run("expired session", func(t *testing.T) {
-// 		// Create a custom config with very short session duration
-// 		cfg := testConfig()
-// 		cfg.DefaultSessionDuration = 1 * time.Millisecond
-// 		svc := NewGourdianSessionService(repo, cfg)
+	t.Run("expired session", func(t *testing.T) {
+		// Create a custom config with very short session duration
+		cfg := testConfig()
+		cfg.DefaultSessionDuration = 1 * time.Millisecond
+		svc := NewGourdianSessionService(repo, cfg)
 
-// 		session, _ := createTestSession(t, svc)
+		session, _ := createTestSession(t, svc)
 
-// 		// Wait for session to expire
-// 		time.Sleep(2 * time.Millisecond)
+		// Wait for session to expire
+		time.Sleep(2 * time.Millisecond)
 
-// 		_, err := svc.ValidateSession(ctx, session.UUID)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session has expired")
-// 	})
+		_, err := svc.ValidateSession(ctx, session.UUID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session has expired")
+	})
 
-// 	t.Run("idle timeout", func(t *testing.T) {
-// 		// Create a custom config with very short idle timeout
-// 		cfg := testConfig()
-// 		cfg.IdleTimeoutDuration = 1 * time.Millisecond
-// 		svc := NewGourdianSessionService(repo, cfg)
+	t.Run("idle timeout", func(t *testing.T) {
+		// Create a custom config with very short idle timeout
+		cfg := testConfig()
+		cfg.IdleTimeoutDuration = 1 * time.Millisecond
+		svc := NewGourdianSessionService(repo, cfg)
 
-// 		session, _ := createTestSession(t, svc)
+		session, _ := createTestSession(t, svc)
 
-// 		// Wait for idle timeout
-// 		time.Sleep(2 * time.Millisecond)
+		// Wait for idle timeout
+		time.Sleep(2 * time.Millisecond)
 
-// 		_, err := svc.ValidateSession(ctx, session.UUID)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session expired due to inactivity")
-// 	})
-// }
+		_, err := svc.ValidateSession(ctx, session.UUID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session expired due to inactivity")
+	})
+}
 
 // func TestSessionService_RefreshSession(t *testing.T) {
 // 	client := setupTestRedis()
