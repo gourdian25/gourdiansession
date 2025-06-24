@@ -116,7 +116,7 @@ func TestSessionService_CreateSession(t *testing.T) {
 		username := "testuser"
 		ip := "192.168.1.1"
 		ua := "test-agent"
-		roles := []Role{}
+		roles := []string{}
 
 		// Create max allowed sessions
 		for i := 0; i < testCfg.MaxUserSessions; i++ {
@@ -137,7 +137,7 @@ func TestSessionService_CreateSession(t *testing.T) {
 		username := "testuser"
 		ip := "192.168.1.1"
 		ua := "test-agent" // Same UA for all sessions
-		roles := []Role{}
+		roles := []string{}
 
 		// Create max allowed device sessions (but stay under user session limit)
 		for i := 0; i < testCfg.MaxSessionsPerDevice; i++ {
@@ -303,7 +303,7 @@ func TestSessionService_RevokeOperations(t *testing.T) {
 		// Create multiple sessions with different user agents to avoid device limits
 		for i := 0; i < 3; i++ {
 			ua := fmt.Sprintf("test-agent-%d", i)
-			_, err := svc.CreateSession(ctx, userID, "testuser", strPtr("192.168.1.1"), &ua, []Role{})
+			_, err := svc.CreateSession(ctx, userID, "testuser", strPtr("192.168.1.1"), &ua, []string{})
 			require.NoError(t, err)
 		}
 
@@ -323,10 +323,10 @@ func TestSessionService_RevokeOperations(t *testing.T) {
 		userID := uuid.New()
 
 		// Create sessions with different user agents
-		session1, err := svc.CreateSession(ctx, userID, "testuser", strPtr("192.168.1.1"), strPtr("test-agent-1"), []Role{})
+		session1, err := svc.CreateSession(ctx, userID, "testuser", strPtr("192.168.1.1"), strPtr("test-agent-1"), []string{})
 		require.NoError(t, err)
 
-		session2, err := svc.CreateSession(ctx, userID, "testuser", strPtr("192.168.1.1"), strPtr("test-agent-2"), []Role{})
+		session2, err := svc.CreateSession(ctx, userID, "testuser", strPtr("192.168.1.1"), strPtr("test-agent-2"), []string{})
 		require.NoError(t, err)
 
 		// Revoke all except session1
@@ -519,12 +519,12 @@ func TestSessionService_GetUserSessions(t *testing.T) {
 
 	t.Run("get sessions for user with multiple", func(t *testing.T) {
 		// Create first session
-		session1, err := svc.CreateSession(ctx, uuid.New(), "user1", nil, nil, []Role{})
+		session1, err := svc.CreateSession(ctx, uuid.New(), "user1", nil, nil, []string{})
 		require.NoError(t, err)
 		userID := session1.UserID
 
 		// Create second session with same user ID
-		session2, err := svc.CreateSession(ctx, userID, "user1", nil, nil, []Role{})
+		session2, err := svc.CreateSession(ctx, userID, "user1", nil, nil, []string{})
 		require.NoError(t, err)
 
 		sessions, err := svc.GetUserSessions(ctx, userID)
@@ -577,11 +577,11 @@ func TestSessionService_EnforceSessionLimits(t *testing.T) {
 
 	t.Run("enforce single session", func(t *testing.T) {
 		// Create first session
-		sess1, err := svc.CreateSession(ctx, userID, "testuser", &ip, &ua, []Role{})
+		sess1, err := svc.CreateSession(ctx, userID, "testuser", &ip, &ua, []string{})
 		require.NoError(t, err)
 
 		// Try to create another session - should work but revoke the first one
-		_, err = svc.CreateSession(ctx, userID, "testuser", &ip, &ua, []Role{})
+		_, err = svc.CreateSession(ctx, userID, "testuser", &ip, &ua, []string{})
 		require.NoError(t, err)
 
 		// Verify first session was revoked

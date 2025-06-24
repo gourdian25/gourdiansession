@@ -26,7 +26,7 @@ func TestRedisRepository_DeleteSession(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 
@@ -59,7 +59,7 @@ func TestRedisRepository_SessionDataOperations(t *testing.T) {
 		"testuser",
 		nil,
 		nil,
-		[]Role{},
+		[]string{},
 		30*time.Minute,
 	)
 
@@ -106,7 +106,7 @@ func TestRedisRepository_CreateSession(t *testing.T) {
 			"testuser",
 			strPtr("192.168.1.1"),
 			strPtr("test-agent"),
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 
@@ -133,7 +133,7 @@ func TestRedisRepository_CreateSession(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 
@@ -160,7 +160,7 @@ func TestRedisRepository_GetSessionByID(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 
@@ -184,7 +184,7 @@ func TestRedisRepository_GetSessionByID(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			-1*time.Minute, // Already expired
 		)
 
@@ -211,7 +211,7 @@ func TestRedisRepository_UpdateSession(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 
@@ -235,7 +235,7 @@ func TestRedisRepository_UpdateSession(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 
@@ -258,7 +258,7 @@ func TestRedisRepository_ValidateSession(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 
@@ -276,7 +276,7 @@ func TestRedisRepository_ValidateSession(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 		session.Status = SessionStatusRevoked
@@ -296,7 +296,7 @@ func TestRedisRepository_ValidateSession(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			1*time.Minute, // Create with positive duration
 		)
 
@@ -331,7 +331,7 @@ func TestRedisRepository_RevokeUserSessions(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 		_, err := repo.CreateSession(ctx, session1)
@@ -342,7 +342,7 @@ func TestRedisRepository_RevokeUserSessions(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 		_, err = repo.CreateSession(ctx, session2)
@@ -353,7 +353,7 @@ func TestRedisRepository_RevokeUserSessions(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 		_, err = repo.CreateSession(ctx, session3)
@@ -393,7 +393,7 @@ func TestRedisRepository_RevokeSessionsExcept(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 		_, err := repo.CreateSession(ctx, session1)
@@ -404,7 +404,7 @@ func TestRedisRepository_RevokeSessionsExcept(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 		_, err = repo.CreateSession(ctx, session2)
@@ -415,7 +415,7 @@ func TestRedisRepository_RevokeSessionsExcept(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 		_, err = repo.CreateSession(ctx, session3)
@@ -443,7 +443,7 @@ func TestRedisRepository_RevokeSessionsExcept(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 		_, err := repo.CreateSession(ctx, session)
@@ -475,7 +475,7 @@ func TestRedisRepository_UpdateSessionActivity(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 
@@ -516,7 +516,7 @@ func TestRedisRepository_ValidateSessionByIDIPUA(t *testing.T) {
 			"testuser",
 			&ip,
 			&ua,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 
@@ -536,7 +536,7 @@ func TestRedisRepository_ValidateSessionByIDIPUA(t *testing.T) {
 			"testuser",
 			&ip,
 			&ua,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 
@@ -556,7 +556,7 @@ func TestRedisRepository_ValidateSessionByIDIPUA(t *testing.T) {
 			"testuser",
 			&ip,
 			&ua,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 
@@ -574,7 +574,7 @@ func TestRedisRepository_ValidateSessionByIDIPUA(t *testing.T) {
 			"testuser",
 			nil, // No IP
 			nil, // No UA
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 
@@ -653,7 +653,7 @@ func TestRedisRepository_ExtendSession(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 
@@ -685,7 +685,7 @@ func TestRedisRepository_ExtendSession(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 		session.Status = SessionStatusRevoked
@@ -712,7 +712,7 @@ func TestRedisRepository_RevokeSessionByID(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 
@@ -743,7 +743,7 @@ func TestRedisRepository_RevokeSessionByID(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 		session.Status = SessionStatusRevoked
@@ -763,7 +763,7 @@ func TestRedisRepository_RevokeSessionByID(t *testing.T) {
 	// 		"testuser",
 	// 		nil,
 	// 		nil,
-	// 		[]Role{},
+	// 		[]string{},
 	// 		30*time.Minute,
 	// 	)
 
@@ -808,7 +808,7 @@ func TestRedisRepository_GetSessionsByUserID(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 		_, err := repo.CreateSession(ctx, session1)
@@ -819,7 +819,7 @@ func TestRedisRepository_GetSessionsByUserID(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 		_, err = repo.CreateSession(ctx, session2)
@@ -830,7 +830,7 @@ func TestRedisRepository_GetSessionsByUserID(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 		_, err = repo.CreateSession(ctx, session3)
@@ -862,7 +862,7 @@ func TestRedisRepository_ConcurrentSessionOperations(t *testing.T) {
 		"testuser",
 		nil,
 		nil,
-		[]Role{},
+		[]string{},
 		30*time.Minute,
 	)
 
@@ -939,7 +939,7 @@ func TestRedisRepository_NilInputHandling(t *testing.T) {
 			"testuser",
 			nil, // nil IP
 			nil, // nil UA
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 
@@ -988,7 +988,7 @@ func TestRedisRepository_UserSessionTracking(t *testing.T) {
 			"user1",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 		_, err := repo.CreateSession(ctx, session1)
@@ -999,7 +999,7 @@ func TestRedisRepository_UserSessionTracking(t *testing.T) {
 			"user1",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 		_, err = repo.CreateSession(ctx, session2)
@@ -1011,7 +1011,7 @@ func TestRedisRepository_UserSessionTracking(t *testing.T) {
 			"user2",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			30*time.Minute,
 		)
 		_, err = repo.CreateSession(ctx, session3)
