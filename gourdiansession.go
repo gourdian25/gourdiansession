@@ -246,7 +246,7 @@ func (r *GourdianSessionMongoRepository) GetSessionByID(ctx context.Context, ses
 
 	// Check if session is expired
 	if session.ExpiresAt.Before(time.Now()) {
-		return nil, fmt.Errorf("%w: session has expired", ErrNotFound)
+		return nil, fmt.Errorf("%w: session has expired", ErrInvalidSession)
 	}
 
 	return &session, nil

@@ -4,6 +4,7 @@ package gourdiansession
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -391,10 +392,11 @@ func TestMongoRepository_GetSessionByID(t *testing.T) {
 	t.Run("non-existent session", func(t *testing.T) {
 		_, err := repo.GetSessionByID(ctx, uuid.New())
 		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrNotFound))
 		assert.Contains(t, err.Error(), "session not found")
 	})
 
-	t.Run("expired session", func(t *testing.T) {
+	t.Run("cannot create expired session", func(t *testing.T) {
 		session := NewGurdianSessionObject(
 			uuid.New(),
 			"testuser",
@@ -405,10 +407,8 @@ func TestMongoRepository_GetSessionByID(t *testing.T) {
 		)
 
 		_, err := repo.CreateSession(ctx, session)
-		require.NoError(t, err)
-
-		_, err = repo.GetSessionByID(ctx, session.UUID)
 		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrInvalidSession), "should reject expired session creation")
 		assert.Contains(t, err.Error(), "session has expired")
 	})
 }
