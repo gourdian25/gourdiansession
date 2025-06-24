@@ -1,0 +1,38 @@
+project_name: gourdiansession
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: "library"
+    skip: true  # Skip binary building for library
+
+archives:
+  - id: "source"
+    format: tar.gz
+    files:
+      - LICENSE
+      - README.md
+      - go.mod
+      - go.sum
+      - ./*.go
+      - examples/*.go
+    name_template: "{{ .ProjectName }}_{{ .Version }}_src"
+
+release:
+  github:
+    owner: gourdian25
+    name: gourdiansession
+  draft: false
+  prerelease: auto
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - 'README'
+      - Merge pull request
