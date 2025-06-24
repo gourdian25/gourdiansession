@@ -381,12 +381,13 @@ func TestMongoRepository_GetSessionByID(t *testing.T) {
 			30*time.Minute,
 		)
 
-		_, err := repo.CreateSession(ctx, session)
+		created, err := repo.CreateSession(ctx, session)
 		require.NoError(t, err)
 
-		retrieved, err := repo.GetSessionByID(ctx, session.UUID)
+		retrieved, err := repo.GetSessionByID(ctx, created.UUID)
 		require.NoError(t, err)
-		assert.Equal(t, session.UUID, retrieved.UUID)
+		assert.Equal(t, created.UUID, retrieved.UUID)
+		assert.Equal(t, SessionStatusActive, retrieved.Status)
 	})
 
 	t.Run("non-existent session", func(t *testing.T) {
@@ -396,7 +397,8 @@ func TestMongoRepository_GetSessionByID(t *testing.T) {
 		assert.Contains(t, err.Error(), "session not found")
 	})
 
-	t.Run("cannot create expired session", func(t *testing.T) {
+	t.Run("expired session validation on retrieval", func(t *testing.T) {
+		// Create a session that will immediately expire
 		session := NewGurdianSessionObject(
 			uuid.New(),
 			"testuser",
@@ -406,10 +408,70 @@ func TestMongoRepository_GetSessionByID(t *testing.T) {
 			-1*time.Minute, // Already expired
 		)
 
-		_, err := repo.CreateSession(ctx, session)
+		// Creation should succeed (expiration is checked on retrieval)
+		created, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		// Retrieval should fail with expired error
+		_, err = repo.GetSessionByID(ctx, created.UUID)
 		require.Error(t, err)
-		assert.True(t, errors.Is(err, ErrInvalidSession), "should reject expired session creation")
+		assert.True(t, errors.Is(err, ErrInvalidSession), "should detect expired session on retrieval")
 		assert.Contains(t, err.Error(), "session has expired")
+
+		// Verify the session was marked as expired
+		_, err = repo.GetSessionByID(ctx, created.UUID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session is not active")
+	})
+
+	t.Run("revoked session", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+
+		created, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		// Revoke the session
+		err = repo.RevokeSessionByID(ctx, created.UUID)
+		require.NoError(t, err)
+
+		// Retrieval should fail with invalid session error
+		_, err = repo.GetSessionByID(ctx, created.UUID)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrInvalidSession))
+		assert.Contains(t, err.Error(), "session is not active")
+	})
+
+	t.Run("deleted session", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+
+		created, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		// Delete the session
+		now := time.Now()
+		created.DeletedAt = &now
+		_, err = repo.UpdateSession(ctx, created)
+		require.NoError(t, err)
+
+		// Retrieval should fail with not found error
+		_, err = repo.GetSessionByID(ctx, created.UUID)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrNotFound))
+		assert.Contains(t, err.Error(), "session has been deleted")
 	})
 }
 

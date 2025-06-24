@@ -249,6 +249,38 @@ func (r *GourdianSessionMongoRepository) GetSessionByID(ctx context.Context, ses
 		return nil, fmt.Errorf("failed to get session: %w", err)
 	}
 
+	// Check if session is deleted
+	if session.DeletedAt != nil {
+		return nil, fmt.Errorf("%w: session has been deleted", ErrNotFound)
+	}
+
+	// Check session status
+	if session.Status != SessionStatusActive {
+		return nil, fmt.Errorf("%w: session is not active", ErrInvalidSession)
+	}
+
+	// Check if session is expired
+	if session.ExpiresAt.Before(time.Now()) {
+		// Update session status to expired
+		update := bson.M{
+			"$set": bson.M{
+				"status":    SessionStatusExpired,
+				"updatedAt": time.Now(),
+			},
+		}
+
+		_, updateErr := r.sessionsCollection.UpdateByID(
+			ctx,
+			session.ID,
+			update,
+		)
+		if updateErr != nil {
+			log.Printf("failed to mark session as expired: %v", updateErr)
+		}
+
+		return nil, fmt.Errorf("%w: session has expired", ErrInvalidSession)
+	}
+
 	return &session, nil
 }
 
