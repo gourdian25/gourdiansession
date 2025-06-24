@@ -738,88 +738,88 @@ func TestMongoRepository_RevokeSessionByID(t *testing.T) {
 	})
 }
 
-// func TestMongoRepository_GetSessionsByUserID(t *testing.T) {
-// 	db := setupTestMongoDB(t)
-// 	defer cleanupTestMongoDB(t, db)
+func TestMongoRepository_GetSessionsByUserID(t *testing.T) {
+	db := setupTestMongoDB(t)
+	defer cleanupTestMongoDB(t, db)
 
-// 	repo := NewGourdianSessionMongoRepository(db, false)
-// 	ctx := context.Background()
+	repo := NewGourdianSessionMongoRepository(db, false)
+	ctx := context.Background()
 
-// 	userID := uuid.New()
+	userID := uuid.New()
 
-// 	t.Run("no sessions for user", func(t *testing.T) {
-// 		sessions, err := repo.GetSessionsByUserID(ctx, userID)
-// 		require.NoError(t, err)
-// 		assert.Empty(t, sessions)
-// 	})
+	t.Run("no sessions for user", func(t *testing.T) {
+		sessions, err := repo.GetSessionsByUserID(ctx, userID)
+		require.NoError(t, err)
+		assert.Empty(t, sessions)
+	})
 
-// 	t.Run("multiple sessions for user", func(t *testing.T) {
-// 		// Create 3 sessions for the same user
-// 		session1 := NewGurdianSessionObject(
-// 			userID,
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
-// 		_, err := repo.CreateSession(ctx, session1)
-// 		require.NoError(t, err)
+	// t.Run("multiple sessions for user", func(t *testing.T) {
+	// 	// Create 3 sessions for the same user
+	// 	session1 := NewGurdianSessionObject(
+	// 		userID,
+	// 		"testuser",
+	// 		nil,
+	// 		nil,
+	// 		[]Role{},
+	// 		30*time.Minute,
+	// 	)
+	// 	_, err := repo.CreateSession(ctx, session1)
+	// 	require.NoError(t, err)
 
-// 		session2 := NewGurdianSessionObject(
-// 			userID,
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
-// 		_, err = repo.CreateSession(ctx, session2)
-// 		require.NoError(t, err)
+	// 	session2 := NewGurdianSessionObject(
+	// 		userID,
+	// 		"testuser",
+	// 		nil,
+	// 		nil,
+	// 		[]Role{},
+	// 		30*time.Minute,
+	// 	)
+	// 	_, err = repo.CreateSession(ctx, session2)
+	// 	require.NoError(t, err)
 
-// 		session3 := NewGurdianSessionObject(
-// 			userID,
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
-// 		_, err = repo.CreateSession(ctx, session3)
-// 		require.NoError(t, err)
+	// 	session3 := NewGurdianSessionObject(
+	// 		userID,
+	// 		"testuser",
+	// 		nil,
+	// 		nil,
+	// 		[]Role{},
+	// 		30*time.Minute,
+	// 	)
+	// 	_, err = repo.CreateSession(ctx, session3)
+	// 	require.NoError(t, err)
 
-// 		// Get all sessions
-// 		sessions, err := repo.GetSessionsByUserID(ctx, userID)
-// 		require.NoError(t, err)
-// 		assert.Len(t, sessions, 3)
+	// 	// Get all sessions
+	// 	sessions, err := repo.GetSessionsByUserID(ctx, userID)
+	// 	require.NoError(t, err)
+	// 	assert.Len(t, sessions, 3)
 
-// 		// Verify all sessions belong to the same user
-// 		for _, s := range sessions {
-// 			assert.Equal(t, userID, s.UserID)
-// 		}
-// 	})
+	// 	// Verify all sessions belong to the same user
+	// 	for _, s := range sessions {
+	// 		assert.Equal(t, userID, s.UserID)
+	// 	}
+	// })
 
-// 	t.Run("filter out deleted sessions", func(t *testing.T) {
-// 		userID := uuid.New()
-// 		session := NewGurdianSessionObject(
-// 			userID,
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
-// 		now := time.Now()
-// 		session.DeletedAt = &now
+	// t.Run("filter out deleted sessions", func(t *testing.T) {
+	// 	userID := uuid.New()
+	// 	session := NewGurdianSessionObject(
+	// 		userID,
+	// 		"testuser",
+	// 		nil,
+	// 		nil,
+	// 		[]Role{},
+	// 		30*time.Minute,
+	// 	)
+	// 	now := time.Now()
+	// 	session.DeletedAt = &now
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+	// 	_, err := repo.CreateSession(ctx, session)
+	// 	require.NoError(t, err)
 
-// 		sessions, err := repo.GetSessionsByUserID(ctx, userID)
-// 		require.NoError(t, err)
-// 		assert.Empty(t, sessions)
-// 	})
-// }
+	// 	sessions, err := repo.GetSessionsByUserID(ctx, userID)
+	// 	require.NoError(t, err)
+	// 	assert.Empty(t, sessions)
+	// })
+}
 
 // func TestMongoRepository_GetActiveSessionsByUserID(t *testing.T) {
 // 	db := setupTestMongoDB(t)
