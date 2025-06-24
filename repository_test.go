@@ -2,6 +2,7 @@ package gourdiansession
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -715,6 +716,7 @@ func TestRedisRepository_RevokeSessionByID(t *testing.T) {
 
 		_, err := repo.CreateSession(ctx, session)
 		require.NoError(t, err)
+
 		err = repo.RevokeSessionByID(ctx, session.UUID)
 		require.NoError(t, err)
 
@@ -722,12 +724,14 @@ func TestRedisRepository_RevokeSessionByID(t *testing.T) {
 		stored, err := repo.GetSessionByID(ctx, session.UUID)
 		require.NoError(t, err)
 		assert.Equal(t, SessionStatusRevoked, stored.Status)
-		assert.True(t, stored.ExpiresAt.After(time.Now().Add(-1*time.Minute))) // Should be soon but not past
+		assert.True(t, stored.ExpiresAt.After(time.Now()))
+		assert.True(t, stored.ExpiresAt.Before(time.Now().Add(2*time.Minute)))
 	})
 
 	t.Run("revoke non-existent session", func(t *testing.T) {
 		err := repo.RevokeSessionByID(ctx, uuid.New())
 		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrNotFound), "Expected ErrNotFound")
 		assert.Contains(t, err.Error(), "session not found")
 	})
 
@@ -746,13 +750,38 @@ func TestRedisRepository_RevokeSessionByID(t *testing.T) {
 		require.NoError(t, err)
 
 		err = repo.RevokeSessionByID(ctx, session.UUID)
-		require.NoError(t, err)
-
-		// Verify status remains revoked and still retrievable
-		stored, err := repo.GetSessionByID(ctx, session.UUID)
-		require.NoError(t, err)
-		assert.Equal(t, SessionStatusRevoked, stored.Status)
+		require.Error(t, err)
+		assert.True(t, errors.Is(err, ErrInvalidSession), "Expected ErrInvalidSession")
+		assert.Contains(t, err.Error(), "session is not active")
 	})
+
+	// t.Run("concurrent revocation conflict", func(t *testing.T) {
+	// 	session := NewGurdianSessionObject(
+	// 		uuid.New(),
+	// 		"testuser",
+	// 		nil,
+	// 		nil,
+	// 		[]Role{},
+	// 		30*time.Minute,
+	// 	)
+
+	// 	_, err := repo.CreateSession(ctx, session)
+	// 	require.NoError(t, err)
+
+	// 	// Simulate concurrent modification by changing the session externally
+	// 	session.Status = SessionStatusRevoked
+	// 	updatedJSON, err := json.Marshal(session)
+	// 	require.NoError(t, err)
+	// 	err = client.Set(ctx, repo.sessionKey(session.UUID), updatedJSON, 0).Err()
+	// 	require.NoError(t, err)
+
+	// 	// Now attempt to revoke
+	// 	err = repo.RevokeSessionByID(ctx, session.UUID)
+	// 	require.Error(t, err)
+	// 	assert.True(t, errors.Is(err, ErrConflict) ||
+	// 		errors.Is(err, ErrInvalidSession),
+	// 		"Expected conflict or invalid session error")
+	// })
 }
 
 func TestRedisRepository_GetSessionsByUserID(t *testing.T) {
