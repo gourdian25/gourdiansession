@@ -610,77 +610,77 @@ func TestMongoRepository_DeleteSession(t *testing.T) {
 	})
 }
 
-// func TestMongoRepository_ValidateSessionByID(t *testing.T) {
-// 	db := setupTestMongoDB(t)
-// 	defer cleanupTestMongoDB(t, db)
+func TestMongoRepository_ValidateSessionByID(t *testing.T) {
+	db := setupTestMongoDB(t)
+	defer cleanupTestMongoDB(t, db)
 
-// 	repo := NewGourdianSessionMongoRepository(db, false)
-// 	ctx := context.Background()
+	repo := NewGourdianSessionMongoRepository(db, false)
+	ctx := context.Background()
 
-// 	t.Run("valid session", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
+	t.Run("valid session", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
 
-// 		validated, err := repo.ValidateSessionByID(ctx, session.UUID)
-// 		require.NoError(t, err)
-// 		assert.Equal(t, session.UUID, validated.UUID)
-// 	})
+		validated, err := repo.ValidateSessionByID(ctx, session.UUID)
+		require.NoError(t, err)
+		assert.Equal(t, session.UUID, validated.UUID)
+	})
 
-// 	t.Run("revoked session", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
-// 		session.Status = SessionStatusRevoked
+	t.Run("revoked session", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+		session.Status = SessionStatusRevoked
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
 
-// 		_, err = repo.ValidateSessionByID(ctx, session.UUID)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session is not active")
-// 	})
+		_, err = repo.ValidateSessionByID(ctx, session.UUID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session is not active")
+	})
 
-// 	t.Run("expired session", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			1*time.Millisecond, // Very short expiration
-// 		)
+	t.Run("expired session", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			1*time.Millisecond, // Very short expiration
+		)
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
 
-// 		// Wait for expiration
-// 		time.Sleep(10 * time.Millisecond)
+		// Wait for expiration
+		time.Sleep(10 * time.Millisecond)
 
-// 		_, err = repo.ValidateSessionByID(ctx, session.UUID)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session has expired")
+		_, err = repo.ValidateSessionByID(ctx, session.UUID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session has expired")
 
-// 		// Verify session was marked as expired
-// 		stored, err := repo.GetSessionByID(ctx, session.UUID)
-// 		if err == nil { // Might be deleted
-// 			assert.Equal(t, SessionStatusExpired, stored.Status)
-// 		}
-// 	})
-// }
+		// Verify session was marked as expired
+		stored, err := repo.GetSessionByID(ctx, session.UUID)
+		if err == nil { // Might be deleted
+			assert.Equal(t, SessionStatusExpired, stored.Status)
+		}
+	})
+}
 
 // func TestMongoRepository_RevokeSessionByID(t *testing.T) {
 // 	db := setupTestMongoDB(t)

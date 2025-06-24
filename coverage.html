@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (61.4%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (65.0%)</option>
 				
 				<option value="file1">github.com/gourdian25/gourdiansession/gourdiansessionRedisRepositoryImp.go (79.5%)</option>
 				
@@ -328,9 +328,9 @@ func (r *GourdianSessionMongoRepository) GetSessionByID(ctx context.Context, ses
         }</span>
 
         // Check if session is expired
-        <span class="cov8" title="1">if session.ExpiresAt.Before(time.Now()) </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if session.ExpiresAt.Before(time.Now()) </span><span class="cov8" title="1">{
                 // Update session status to expired if it's not already
-                if session.Status != SessionStatusExpired </span><span class="cov0" title="0">{
+                if session.Status != SessionStatusExpired </span><span class="cov8" title="1">{
                         update := bson.M{
                                 "$set": bson.M{
                                         "status":    SessionStatusExpired,
@@ -347,11 +347,11 @@ func (r *GourdianSessionMongoRepository) GetSessionByID(ctx context.Context, ses
                                 log.Printf("failed to mark session as expired: %v", updateErr)
                         }</span>
                 }
-                <span class="cov0" title="0">return nil, fmt.Errorf("%w: session has expired", ErrInvalidSession)</span>
+                <span class="cov8" title="1">return nil, fmt.Errorf("%w: session has expired", ErrInvalidSession)</span>
         }
 
         // Check session status (after expiration check)
-        <span class="cov8" title="1">if session.Status != SessionStatusActive </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if session.Status != SessionStatusActive </span><span class="cov8" title="1">{
                 return nil, fmt.Errorf("%w: session is not active", ErrInvalidSession)
         }</span>
 
@@ -411,8 +411,8 @@ func (r *GourdianSessionMongoRepository) UpdateSession(ctx context.Context, sess
         <span class="cov8" title="1">return updatedSession, nil</span>
 }
 
-func (r *GourdianSessionMongoRepository) DeleteSession(ctx context.Context, sessionID uuid.UUID) error <span class="cov0" title="0">{
-        return r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error </span><span class="cov0" title="0">{
+func (r *GourdianSessionMongoRepository) DeleteSession(ctx context.Context, sessionID uuid.UUID) error <span class="cov8" title="1">{
+        return r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error </span><span class="cov8" title="1">{
                 // First delete associated session data
                 _, err := r.sessionsCollection.DeleteMany(
                         sessionCtx,
@@ -423,7 +423,7 @@ func (r *GourdianSessionMongoRepository) DeleteSession(ctx context.Context, sess
                 }</span>
 
                 // Then delete the session itself
-                <span class="cov0" title="0">result, err := r.sessionsCollection.DeleteOne(
+                <span class="cov8" title="1">result, err := r.sessionsCollection.DeleteOne(
                         sessionCtx,
                         bson.M{"uuid": sessionID},
                 )
@@ -431,11 +431,11 @@ func (r *GourdianSessionMongoRepository) DeleteSession(ctx context.Context, sess
                         return fmt.Errorf("failed to delete session: %w", err)
                 }</span>
 
-                <span class="cov0" title="0">if result.DeletedCount == 0 </span><span class="cov0" title="0">{
+                <span class="cov8" title="1">if result.DeletedCount == 0 </span><span class="cov8" title="1">{
                         return fmt.Errorf("%w: session not found", ErrNotFound)
                 }</span>
 
-                <span class="cov0" title="0">return nil</span>
+                <span class="cov8" title="1">return nil</span>
         })
 }
 
@@ -597,7 +597,7 @@ func (r *GourdianSessionMongoRepository) ValidateSessionByID(ctx context.Context
 
         err := r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error </span><span class="cov8" title="1">{
                 session, validateErr = r.GetSessionByID(sessionCtx, sessionID)
-                if validateErr != nil </span><span class="cov0" title="0">{
+                if validateErr != nil </span><span class="cov8" title="1">{
                         return validateErr
                 }</span>
 
@@ -631,7 +631,7 @@ func (r *GourdianSessionMongoRepository) ValidateSessionByID(ctx context.Context
                 <span class="cov8" title="1">return nil</span>
         })
 
-        <span class="cov8" title="1">if err != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if err != nil </span><span class="cov8" title="1">{
                 return nil, err
         }</span>
         <span class="cov8" title="1">if validateErr != nil </span><span class="cov0" title="0">{
