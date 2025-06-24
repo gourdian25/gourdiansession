@@ -55,7 +55,9 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (79.3%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (79.0%)</option>
+				
+				<option value="file1">github.com/gourdian25/gourdiansession/gourdiansessionRedisRepositoryImp.go (79.5%)</option>
 				
 				</select>
 			</div>
@@ -73,7 +75,6 @@
 
 import (
         "context"
-        "encoding/json"
         "errors"
         "fmt"
         "log"
@@ -194,6 +195,510 @@ type GurdianSessionRepositoryInt interface {
 
         DeleteTemporaryData(ctx context.Context, key string) error
 }
+
+type GourdianSessionConfig struct {
+        MaxUserSessions            int
+        MaxSessionsPerDevice       int
+        MaxIPConnections           int
+        AllowConcurrentSessions    bool
+        TrackIPAddresses           bool
+        TrackClientDevices         bool
+        DefaultSessionDuration     time.Duration
+        IdleTimeoutDuration        time.Duration
+        SessionRenewalWindow       time.Duration
+        SessionCleanupInterval     time.Duration
+        AutoRevokeOnPasswordChange bool
+        BlockedUserAgents          []string
+}
+
+type GourdianSessionServiceInt interface {
+        CreateSession(ctx context.Context, userID uuid.UUID, username string, ipAddress, userAgent *string, roles []Role) (*GourdianSessionType, error)
+
+        RevokeSession(ctx context.Context, sessionID uuid.UUID) error
+
+        GetSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error)
+
+        RefreshSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error)
+
+        ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) (*GourdianSessionType, error)
+
+        UpdateSessionActivity(ctx context.Context, sessionID uuid.UUID) error
+
+        GetUserSessions(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error)
+
+        GetActiveUserSessions(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error)
+
+        RevokeAllUserSessions(ctx context.Context, userID uuid.UUID) error
+
+        RevokeOtherUserSessions(ctx context.Context, userID, currentSessionID uuid.UUID) error
+
+        ValidateSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error)
+
+        ValidateSessionWithContext(ctx context.Context, sessionID uuid.UUID, ipAddress, userAgent string) (*GourdianSessionType, error)
+
+        SetSessionData(ctx context.Context, sessionID uuid.UUID, key string, value interface{}) error
+
+        GetSessionData(ctx context.Context, sessionID uuid.UUID, key string) (interface{}, error)
+
+        DeleteSessionData(ctx context.Context, sessionID uuid.UUID, key string) error
+
+        SetTemporaryData(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+
+        GetTemporaryData(ctx context.Context, key string) (interface{}, error)
+
+        DeleteTemporaryData(ctx context.Context, key string) error
+
+        CheckSessionQuota(ctx context.Context, userID uuid.UUID, ipAddress, userAgent *string) error
+
+        EnforceSessionLimits(ctx context.Context, userID uuid.UUID, ipAddress, userAgent *string) error
+}
+
+type GourdianSessionService struct {
+        repo   GurdianSessionRepositoryInt
+        config *GourdianSessionConfig
+}
+
+func NewGourdianSessionService(repo GurdianSessionRepositoryInt, config *GourdianSessionConfig) GourdianSessionServiceInt <span class="cov8" title="1">{
+        return &amp;GourdianSessionService{
+                repo:   repo,
+                config: config,
+        }
+}</span>
+
+func (s *GourdianSessionService) CreateSession(ctx context.Context, userID uuid.UUID, username string, ipAddress, userAgent *string, roles []Role) (*GourdianSessionType, error) <span class="cov8" title="1">{
+        if userID == uuid.Nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
+        }</span>
+        <span class="cov8" title="1">if username == "" </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("%w: username cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">if userAgent != nil &amp;&amp; s.isUserAgentBlocked(*userAgent) </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("%w: user agent is blocked", ErrForbidden)
+        }</span>
+
+        <span class="cov8" title="1">if err := s.EnforceSessionLimits(ctx, userID, ipAddress, userAgent); err != nil </span><span class="cov8" title="1">{
+                return nil, err
+        }</span>
+
+        <span class="cov8" title="1">session := NewGurdianSessionObject(
+                userID,
+                username,
+                ipAddress,
+                userAgent,
+                roles,
+                s.config.DefaultSessionDuration,
+        )
+
+        createdSession, err := s.repo.CreateSession(ctx, session)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to create session: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return createdSession, nil</span>
+}
+
+func (s *GourdianSessionService) RevokeSession(ctx context.Context, sessionID uuid.UUID) error <span class="cov8" title="1">{
+        if sessionID == uuid.Nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">if err := s.repo.RevokeSessionByID(ctx, sessionID); err != nil </span><span class="cov8" title="1">{
+                return fmt.Errorf("failed to revoke session: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (s *GourdianSessionService) GetSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) <span class="cov8" title="1">{
+        if sessionID == uuid.Nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">session, err := s.repo.GetSessionByID(ctx, sessionID)
+        if err != nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("failed to get session: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return session, nil</span>
+}
+
+func (s *GourdianSessionService) RefreshSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) <span class="cov8" title="1">{
+        session, err := s.ValidateSession(ctx, sessionID)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+
+        <span class="cov8" title="1">now := time.Now()
+        timeRemaining := session.ExpiresAt.Sub(now)
+
+        // Debug log
+        log.Printf("Now: %v, TimeRemaining: %v, RenewalWindow: %v", now, timeRemaining, s.config.SessionRenewalWindow)
+
+        // Renew if we're within the renewal window
+        if timeRemaining &lt;= s.config.SessionRenewalWindow </span><span class="cov8" title="1">{
+                newExpiry := now.Add(s.config.DefaultSessionDuration)
+                log.Printf("Extending session from %v to %v", session.ExpiresAt, newExpiry)
+
+                session.ExpiresAt = newExpiry
+                session.LastActivity = now
+
+                updated, err := s.repo.UpdateSession(ctx, session)
+                if err != nil </span><span class="cov0" title="0">{
+                        return nil, fmt.Errorf("failed to update session: %w", err)
+                }</span>
+                <span class="cov8" title="1">return updated, nil</span>
+        }
+
+        <span class="cov8" title="1">return session, nil</span>
+}
+
+func (s *GourdianSessionService) ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) (*GourdianSessionType, error) <span class="cov8" title="1">{
+        if sessionID == uuid.Nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
+        }</span>
+        <span class="cov8" title="1">if duration &lt;= 0 </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("%w: duration must be positive", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">session, err := s.ValidateSession(ctx, sessionID)
+        if err != nil </span><span class="cov8" title="1">{
+                return nil, err
+        }</span>
+
+        <span class="cov8" title="1">if err := s.repo.ExtendSession(ctx, session.UUID, duration); err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to extend session: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">updatedSession, err := s.repo.GetSessionByID(ctx, sessionID)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to get updated session: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return updatedSession, nil</span>
+}
+
+func (s *GourdianSessionService) UpdateSessionActivity(ctx context.Context, sessionID uuid.UUID) error <span class="cov8" title="1">{
+        if sessionID == uuid.Nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">if err := s.repo.UpdateSessionActivity(ctx, sessionID); err != nil </span><span class="cov8" title="1">{
+                return fmt.Errorf("failed to update session activity: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (s *GourdianSessionService) GetUserSessions(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error) <span class="cov8" title="1">{
+        if userID == uuid.Nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">sessions, err := s.repo.GetSessionsByUserID(ctx, userID)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to get user sessions: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return sessions, nil</span>
+}
+
+func (s *GourdianSessionService) GetActiveUserSessions(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error) <span class="cov8" title="1">{
+        if userID == uuid.Nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">sessions, err := s.repo.GetActiveSessionsByUserID(ctx, userID)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to get active user sessions: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return sessions, nil</span>
+}
+
+func (s *GourdianSessionService) RevokeAllUserSessions(ctx context.Context, userID uuid.UUID) error <span class="cov8" title="1">{
+        if userID == uuid.Nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">if err := s.repo.RevokeUserSessions(ctx, userID); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to revoke user sessions: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (s *GourdianSessionService) RevokeOtherUserSessions(ctx context.Context, userID, currentSessionID uuid.UUID) error <span class="cov8" title="1">{
+        if userID == uuid.Nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
+        }</span>
+        <span class="cov8" title="1">if currentSessionID == uuid.Nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("%w: current session ID cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">if err := s.repo.RevokeSessionsExcept(ctx, userID, currentSessionID); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to revoke other user sessions: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (s *GourdianSessionService) ValidateSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) <span class="cov8" title="1">{
+        if sessionID == uuid.Nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">session, err := s.repo.ValidateSessionByID(ctx, sessionID)
+        if err != nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("session validation failed: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">if s.config.IdleTimeoutDuration &gt; 0 </span><span class="cov8" title="1">{
+                idleCutoff := time.Now().Add(-s.config.IdleTimeoutDuration)
+                if session.LastActivity.Before(idleCutoff) </span><span class="cov8" title="1">{
+                        session.Status = SessionStatusExpired
+                        _, _ = s.repo.UpdateSession(ctx, session)
+                        return nil, fmt.Errorf("%w: session expired due to inactivity", ErrInvalidSession)
+                }</span>
+        }
+
+        <span class="cov8" title="1">return session, nil</span>
+}
+
+func (s *GourdianSessionService) ValidateSessionWithContext(ctx context.Context, sessionID uuid.UUID, ipAddress, userAgent string) (*GourdianSessionType, error) <span class="cov8" title="1">{
+        if sessionID == uuid.Nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
+        }</span>
+        <span class="cov8" title="1">if ipAddress == "" </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("%w: IP address cannot be empty", ErrInvalidInput)
+        }</span>
+        <span class="cov8" title="1">if userAgent == "" </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("%w: user agent cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">session, err := s.repo.ValidateSessionByIDIPUA(ctx, sessionID, ipAddress, userAgent)
+        if err != nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("session validation failed: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">if s.config.IdleTimeoutDuration &gt; 0 </span><span class="cov8" title="1">{
+                idleCutoff := time.Now().Add(-s.config.IdleTimeoutDuration)
+                if session.LastActivity.Before(idleCutoff) </span><span class="cov0" title="0">{
+                        session.Status = SessionStatusExpired
+                        _, _ = s.repo.UpdateSession(ctx, session)
+                        return nil, fmt.Errorf("%w: session expired due to inactivity", ErrInvalidSession)
+                }</span>
+        }
+
+        <span class="cov8" title="1">return session, nil</span>
+}
+
+func (s *GourdianSessionService) SetSessionData(ctx context.Context, sessionID uuid.UUID, key string, value interface{}) error <span class="cov8" title="1">{
+        if sessionID == uuid.Nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
+        }</span>
+        <span class="cov8" title="1">if key == "" </span><span class="cov8" title="1">{
+                return fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">if _, err := s.ValidateSession(ctx, sessionID); err != nil </span><span class="cov8" title="1">{
+                return err
+        }</span>
+
+        <span class="cov8" title="1">if err := s.repo.SetSessionData(ctx, sessionID, key, value); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to set session data: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (s *GourdianSessionService) GetSessionData(ctx context.Context, sessionID uuid.UUID, key string) (interface{}, error) <span class="cov8" title="1">{
+        if sessionID == uuid.Nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
+        }</span>
+        <span class="cov8" title="1">if key == "" </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">if _, err := s.ValidateSession(ctx, sessionID); err != nil </span><span class="cov8" title="1">{
+                return nil, err
+        }</span>
+
+        <span class="cov8" title="1">value, err := s.repo.GetSessionData(ctx, sessionID, key)
+        if err != nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("failed to get session data: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return value, nil</span>
+}
+
+func (s *GourdianSessionService) DeleteSessionData(ctx context.Context, sessionID uuid.UUID, key string) error <span class="cov8" title="1">{
+        if sessionID == uuid.Nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
+        }</span>
+        <span class="cov8" title="1">if key == "" </span><span class="cov0" title="0">{
+                return fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">if _, err := s.ValidateSession(ctx, sessionID); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        <span class="cov8" title="1">if err := s.repo.DeleteSessionData(ctx, sessionID, key); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to delete session data: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (s *GourdianSessionService) SetTemporaryData(ctx context.Context, key string, value interface{}, ttl time.Duration) error <span class="cov8" title="1">{
+        if key == "" </span><span class="cov0" title="0">{
+                return fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
+        }</span>
+        <span class="cov8" title="1">if ttl &lt;= 0 </span><span class="cov8" title="1">{
+                return fmt.Errorf("%w: TTL must be positive", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">if err := s.repo.SetTemporaryData(ctx, key, value, ttl); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to set temporary data: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (s *GourdianSessionService) GetTemporaryData(ctx context.Context, key string) (interface{}, error) <span class="cov8" title="1">{
+        if key == "" </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">value, err := s.repo.GetTemporaryData(ctx, key)
+        if err != nil </span><span class="cov8" title="1">{
+                return nil, fmt.Errorf("failed to get temporary data: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return value, nil</span>
+}
+
+func (s *GourdianSessionService) DeleteTemporaryData(ctx context.Context, key string) error <span class="cov8" title="1">{
+        if key == "" </span><span class="cov0" title="0">{
+                return fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">if err := s.repo.DeleteTemporaryData(ctx, key); err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("failed to delete temporary data: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (s *GourdianSessionService) CheckSessionQuota(ctx context.Context, userID uuid.UUID, ipAddress, userAgent *string) error <span class="cov8" title="1">{
+        if userID == uuid.Nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">if s.config.MaxUserSessions &gt; 0 </span><span class="cov8" title="1">{
+                activeSessions, err := s.GetActiveUserSessions(ctx, userID)
+                if err != nil </span><span class="cov0" title="0">{
+                        return fmt.Errorf("failed to check active sessions: %w", err)
+                }</span>
+
+                <span class="cov8" title="1">if len(activeSessions) &gt;= s.config.MaxUserSessions </span><span class="cov8" title="1">{
+                        return fmt.Errorf("%w: maximum number of sessions reached for user", ErrForbidden)
+                }</span>
+        }
+
+        <span class="cov8" title="1">if s.config.TrackClientDevices &amp;&amp; s.config.MaxSessionsPerDevice &gt; 0 &amp;&amp; userAgent != nil </span><span class="cov8" title="1">{
+                allSessions, err := s.GetActiveUserSessions(ctx, userID)
+                if err != nil </span><span class="cov0" title="0">{
+                        return fmt.Errorf("failed to check device sessions: %w", err)
+                }</span>
+
+                <span class="cov8" title="1">deviceSessions := 0
+                for _, session := range allSessions </span><span class="cov8" title="1">{
+                        if session.UserAgent != nil &amp;&amp; *session.UserAgent == *userAgent </span><span class="cov8" title="1">{
+                                deviceSessions++
+                        }</span>
+                }
+
+                <span class="cov8" title="1">if deviceSessions &gt;= s.config.MaxSessionsPerDevice </span><span class="cov8" title="1">{
+                        return fmt.Errorf("%w: maximum number of sessions reached for this device", ErrForbidden)
+                }</span>
+        }
+
+        <span class="cov8" title="1">if s.config.TrackIPAddresses &amp;&amp; s.config.MaxIPConnections &gt; 0 &amp;&amp; ipAddress != nil </span><span class="cov8" title="1">{
+                allSessions, err := s.repo.GetActiveSessionsByUserID(ctx, userID)
+                if err != nil </span><span class="cov0" title="0">{
+                        return fmt.Errorf("failed to check IP sessions: %w", err)
+                }</span>
+
+                <span class="cov8" title="1">ipSessions := 0
+                for _, session := range allSessions </span><span class="cov8" title="1">{
+                        if session.IPAddress != nil &amp;&amp; *session.IPAddress == *ipAddress </span><span class="cov8" title="1">{
+                                ipSessions++
+                        }</span>
+                }
+
+                <span class="cov8" title="1">if ipSessions &gt;= s.config.MaxIPConnections </span><span class="cov0" title="0">{
+                        return fmt.Errorf("%w: maximum number of connections reached from this IP", ErrForbidden)
+                }</span>
+        }
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (s *GourdianSessionService) EnforceSessionLimits(ctx context.Context, userID uuid.UUID, ipAddress, userAgent *string) error <span class="cov8" title="1">{
+        if userID == uuid.Nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
+        }</span>
+
+        <span class="cov8" title="1">if err := s.CheckSessionQuota(ctx, userID, ipAddress, userAgent); err != nil </span><span class="cov8" title="1">{
+                return err
+        }</span>
+
+        <span class="cov8" title="1">if !s.config.AllowConcurrentSessions </span><span class="cov8" title="1">{
+                // When creating a new session, we want to revoke ALL existing sessions
+                if err := s.repo.RevokeUserSessions(ctx, userID); err != nil </span><span class="cov0" title="0">{
+                        return fmt.Errorf("failed to enforce single session policy: %w", err)
+                }</span>
+        }
+
+        <span class="cov8" title="1">return nil</span>
+}
+
+func (s *GourdianSessionService) isUserAgentBlocked(userAgent string) bool <span class="cov8" title="1">{
+        if len(s.config.BlockedUserAgents) == 0 </span><span class="cov8" title="1">{
+                return false
+        }</span>
+
+        <span class="cov8" title="1">uaLower := strings.ToLower(userAgent)
+        for _, blockedUA := range s.config.BlockedUserAgents </span><span class="cov8" title="1">{
+                if strings.Contains(uaLower, strings.ToLower(blockedUA)) </span><span class="cov8" title="1">{
+                        return true
+                }</span>
+        }
+
+        <span class="cov8" title="1">return false</span>
+}
+
+func NewGourdianRedisSession(redisClient *redis.Client, config *GourdianSessionConfig) GourdianSessionServiceInt <span class="cov8" title="1">{
+        redisRepo := NewGurdianSessionRedisRepository(redisClient)
+        return NewGourdianSessionService(redisRepo, config)
+}</span>
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package gourdiansession
+
+import (
+        "context"
+        "encoding/json"
+        "errors"
+        "fmt"
+        "log"
+        "time"
+
+        "github.com/google/uuid"
+        "github.com/redis/go-redis/v9"
+)
 
 const (
         sessionKeyPrefix       = "session:"
@@ -771,495 +1276,6 @@ func (r *GurdianSessionRedisRepository) DeleteTemporaryData(ctx context.Context,
 
         <span class="cov8" title="1">return nil</span>
 }
-
-type GourdianSessionConfig struct {
-        MaxUserSessions            int
-        MaxSessionsPerDevice       int
-        MaxIPConnections           int
-        AllowConcurrentSessions    bool
-        TrackIPAddresses           bool
-        TrackClientDevices         bool
-        DefaultSessionDuration     time.Duration
-        IdleTimeoutDuration        time.Duration
-        SessionRenewalWindow       time.Duration
-        SessionCleanupInterval     time.Duration
-        AutoRevokeOnPasswordChange bool
-        BlockedUserAgents          []string
-}
-
-type GourdianSessionServiceInt interface {
-        CreateSession(ctx context.Context, userID uuid.UUID, username string, ipAddress, userAgent *string, roles []Role) (*GourdianSessionType, error)
-
-        RevokeSession(ctx context.Context, sessionID uuid.UUID) error
-
-        GetSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error)
-
-        RefreshSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error)
-
-        ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) (*GourdianSessionType, error)
-
-        UpdateSessionActivity(ctx context.Context, sessionID uuid.UUID) error
-
-        GetUserSessions(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error)
-
-        GetActiveUserSessions(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error)
-
-        RevokeAllUserSessions(ctx context.Context, userID uuid.UUID) error
-
-        RevokeOtherUserSessions(ctx context.Context, userID, currentSessionID uuid.UUID) error
-
-        ValidateSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error)
-
-        ValidateSessionWithContext(ctx context.Context, sessionID uuid.UUID, ipAddress, userAgent string) (*GourdianSessionType, error)
-
-        SetSessionData(ctx context.Context, sessionID uuid.UUID, key string, value interface{}) error
-
-        GetSessionData(ctx context.Context, sessionID uuid.UUID, key string) (interface{}, error)
-
-        DeleteSessionData(ctx context.Context, sessionID uuid.UUID, key string) error
-
-        SetTemporaryData(ctx context.Context, key string, value interface{}, ttl time.Duration) error
-
-        GetTemporaryData(ctx context.Context, key string) (interface{}, error)
-
-        DeleteTemporaryData(ctx context.Context, key string) error
-
-        CheckSessionQuota(ctx context.Context, userID uuid.UUID, ipAddress, userAgent *string) error
-
-        EnforceSessionLimits(ctx context.Context, userID uuid.UUID, ipAddress, userAgent *string) error
-}
-
-type GourdianSessionService struct {
-        repo   GurdianSessionRepositoryInt
-        config *GourdianSessionConfig
-}
-
-func NewGourdianSessionService(repo GurdianSessionRepositoryInt, config *GourdianSessionConfig) GourdianSessionServiceInt <span class="cov8" title="1">{
-        return &amp;GourdianSessionService{
-                repo:   repo,
-                config: config,
-        }
-}</span>
-
-func (s *GourdianSessionService) CreateSession(ctx context.Context, userID uuid.UUID, username string, ipAddress, userAgent *string, roles []Role) (*GourdianSessionType, error) <span class="cov8" title="1">{
-        if userID == uuid.Nil </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
-        }</span>
-        <span class="cov8" title="1">if username == "" </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("%w: username cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">if userAgent != nil &amp;&amp; s.isUserAgentBlocked(*userAgent) </span><span class="cov8" title="1">{
-                return nil, fmt.Errorf("%w: user agent is blocked", ErrForbidden)
-        }</span>
-
-        <span class="cov8" title="1">if err := s.EnforceSessionLimits(ctx, userID, ipAddress, userAgent); err != nil </span><span class="cov8" title="1">{
-                return nil, err
-        }</span>
-
-        <span class="cov8" title="1">session := NewGurdianSessionObject(
-                userID,
-                username,
-                ipAddress,
-                userAgent,
-                roles,
-                s.config.DefaultSessionDuration,
-        )
-
-        createdSession, err := s.repo.CreateSession(ctx, session)
-        if err != nil </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("failed to create session: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">return createdSession, nil</span>
-}
-
-func (s *GourdianSessionService) RevokeSession(ctx context.Context, sessionID uuid.UUID) error <span class="cov8" title="1">{
-        if sessionID == uuid.Nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">if err := s.repo.RevokeSessionByID(ctx, sessionID); err != nil </span><span class="cov8" title="1">{
-                return fmt.Errorf("failed to revoke session: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">return nil</span>
-}
-
-func (s *GourdianSessionService) GetSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) <span class="cov8" title="1">{
-        if sessionID == uuid.Nil </span><span class="cov8" title="1">{
-                return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">session, err := s.repo.GetSessionByID(ctx, sessionID)
-        if err != nil </span><span class="cov8" title="1">{
-                return nil, fmt.Errorf("failed to get session: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">return session, nil</span>
-}
-
-func (s *GourdianSessionService) RefreshSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) <span class="cov8" title="1">{
-        session, err := s.ValidateSession(ctx, sessionID)
-        if err != nil </span><span class="cov0" title="0">{
-                return nil, err
-        }</span>
-
-        <span class="cov8" title="1">now := time.Now()
-        timeRemaining := session.ExpiresAt.Sub(now)
-
-        // Debug log
-        log.Printf("Now: %v, TimeRemaining: %v, RenewalWindow: %v", now, timeRemaining, s.config.SessionRenewalWindow)
-
-        // Renew if we're within the renewal window
-        if timeRemaining &lt;= s.config.SessionRenewalWindow </span><span class="cov8" title="1">{
-                newExpiry := now.Add(s.config.DefaultSessionDuration)
-                log.Printf("Extending session from %v to %v", session.ExpiresAt, newExpiry)
-
-                session.ExpiresAt = newExpiry
-                session.LastActivity = now
-
-                updated, err := s.repo.UpdateSession(ctx, session)
-                if err != nil </span><span class="cov0" title="0">{
-                        return nil, fmt.Errorf("failed to update session: %w", err)
-                }</span>
-                <span class="cov8" title="1">return updated, nil</span>
-        }
-
-        <span class="cov8" title="1">return session, nil</span>
-}
-
-func (s *GourdianSessionService) ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) (*GourdianSessionType, error) <span class="cov8" title="1">{
-        if sessionID == uuid.Nil </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
-        }</span>
-        <span class="cov8" title="1">if duration &lt;= 0 </span><span class="cov8" title="1">{
-                return nil, fmt.Errorf("%w: duration must be positive", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">session, err := s.ValidateSession(ctx, sessionID)
-        if err != nil </span><span class="cov8" title="1">{
-                return nil, err
-        }</span>
-
-        <span class="cov8" title="1">if err := s.repo.ExtendSession(ctx, session.UUID, duration); err != nil </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("failed to extend session: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">updatedSession, err := s.repo.GetSessionByID(ctx, sessionID)
-        if err != nil </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("failed to get updated session: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">return updatedSession, nil</span>
-}
-
-func (s *GourdianSessionService) UpdateSessionActivity(ctx context.Context, sessionID uuid.UUID) error <span class="cov8" title="1">{
-        if sessionID == uuid.Nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">if err := s.repo.UpdateSessionActivity(ctx, sessionID); err != nil </span><span class="cov8" title="1">{
-                return fmt.Errorf("failed to update session activity: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">return nil</span>
-}
-
-func (s *GourdianSessionService) GetUserSessions(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error) <span class="cov8" title="1">{
-        if userID == uuid.Nil </span><span class="cov8" title="1">{
-                return nil, fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">sessions, err := s.repo.GetSessionsByUserID(ctx, userID)
-        if err != nil </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("failed to get user sessions: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">return sessions, nil</span>
-}
-
-func (s *GourdianSessionService) GetActiveUserSessions(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error) <span class="cov8" title="1">{
-        if userID == uuid.Nil </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">sessions, err := s.repo.GetActiveSessionsByUserID(ctx, userID)
-        if err != nil </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("failed to get active user sessions: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">return sessions, nil</span>
-}
-
-func (s *GourdianSessionService) RevokeAllUserSessions(ctx context.Context, userID uuid.UUID) error <span class="cov8" title="1">{
-        if userID == uuid.Nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">if err := s.repo.RevokeUserSessions(ctx, userID); err != nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("failed to revoke user sessions: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">return nil</span>
-}
-
-func (s *GourdianSessionService) RevokeOtherUserSessions(ctx context.Context, userID, currentSessionID uuid.UUID) error <span class="cov8" title="1">{
-        if userID == uuid.Nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
-        }</span>
-        <span class="cov8" title="1">if currentSessionID == uuid.Nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("%w: current session ID cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">if err := s.repo.RevokeSessionsExcept(ctx, userID, currentSessionID); err != nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("failed to revoke other user sessions: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">return nil</span>
-}
-
-func (s *GourdianSessionService) ValidateSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) <span class="cov8" title="1">{
-        if sessionID == uuid.Nil </span><span class="cov8" title="1">{
-                return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">session, err := s.repo.ValidateSessionByID(ctx, sessionID)
-        if err != nil </span><span class="cov8" title="1">{
-                return nil, fmt.Errorf("session validation failed: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">if s.config.IdleTimeoutDuration &gt; 0 </span><span class="cov8" title="1">{
-                idleCutoff := time.Now().Add(-s.config.IdleTimeoutDuration)
-                if session.LastActivity.Before(idleCutoff) </span><span class="cov8" title="1">{
-                        session.Status = SessionStatusExpired
-                        _, _ = s.repo.UpdateSession(ctx, session)
-                        return nil, fmt.Errorf("%w: session expired due to inactivity", ErrInvalidSession)
-                }</span>
-        }
-
-        <span class="cov8" title="1">return session, nil</span>
-}
-
-func (s *GourdianSessionService) ValidateSessionWithContext(ctx context.Context, sessionID uuid.UUID, ipAddress, userAgent string) (*GourdianSessionType, error) <span class="cov8" title="1">{
-        if sessionID == uuid.Nil </span><span class="cov8" title="1">{
-                return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
-        }</span>
-        <span class="cov8" title="1">if ipAddress == "" </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("%w: IP address cannot be empty", ErrInvalidInput)
-        }</span>
-        <span class="cov8" title="1">if userAgent == "" </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("%w: user agent cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">session, err := s.repo.ValidateSessionByIDIPUA(ctx, sessionID, ipAddress, userAgent)
-        if err != nil </span><span class="cov8" title="1">{
-                return nil, fmt.Errorf("session validation failed: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">if s.config.IdleTimeoutDuration &gt; 0 </span><span class="cov8" title="1">{
-                idleCutoff := time.Now().Add(-s.config.IdleTimeoutDuration)
-                if session.LastActivity.Before(idleCutoff) </span><span class="cov0" title="0">{
-                        session.Status = SessionStatusExpired
-                        _, _ = s.repo.UpdateSession(ctx, session)
-                        return nil, fmt.Errorf("%w: session expired due to inactivity", ErrInvalidSession)
-                }</span>
-        }
-
-        <span class="cov8" title="1">return session, nil</span>
-}
-
-func (s *GourdianSessionService) SetSessionData(ctx context.Context, sessionID uuid.UUID, key string, value interface{}) error <span class="cov8" title="1">{
-        if sessionID == uuid.Nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
-        }</span>
-        <span class="cov8" title="1">if key == "" </span><span class="cov8" title="1">{
-                return fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">if _, err := s.ValidateSession(ctx, sessionID); err != nil </span><span class="cov8" title="1">{
-                return err
-        }</span>
-
-        <span class="cov8" title="1">if err := s.repo.SetSessionData(ctx, sessionID, key, value); err != nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("failed to set session data: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">return nil</span>
-}
-
-func (s *GourdianSessionService) GetSessionData(ctx context.Context, sessionID uuid.UUID, key string) (interface{}, error) <span class="cov8" title="1">{
-        if sessionID == uuid.Nil </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
-        }</span>
-        <span class="cov8" title="1">if key == "" </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">if _, err := s.ValidateSession(ctx, sessionID); err != nil </span><span class="cov8" title="1">{
-                return nil, err
-        }</span>
-
-        <span class="cov8" title="1">value, err := s.repo.GetSessionData(ctx, sessionID, key)
-        if err != nil </span><span class="cov8" title="1">{
-                return nil, fmt.Errorf("failed to get session data: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">return value, nil</span>
-}
-
-func (s *GourdianSessionService) DeleteSessionData(ctx context.Context, sessionID uuid.UUID, key string) error <span class="cov8" title="1">{
-        if sessionID == uuid.Nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
-        }</span>
-        <span class="cov8" title="1">if key == "" </span><span class="cov0" title="0">{
-                return fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">if _, err := s.ValidateSession(ctx, sessionID); err != nil </span><span class="cov0" title="0">{
-                return err
-        }</span>
-
-        <span class="cov8" title="1">if err := s.repo.DeleteSessionData(ctx, sessionID, key); err != nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("failed to delete session data: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">return nil</span>
-}
-
-func (s *GourdianSessionService) SetTemporaryData(ctx context.Context, key string, value interface{}, ttl time.Duration) error <span class="cov8" title="1">{
-        if key == "" </span><span class="cov0" title="0">{
-                return fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
-        }</span>
-        <span class="cov8" title="1">if ttl &lt;= 0 </span><span class="cov8" title="1">{
-                return fmt.Errorf("%w: TTL must be positive", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">if err := s.repo.SetTemporaryData(ctx, key, value, ttl); err != nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("failed to set temporary data: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">return nil</span>
-}
-
-func (s *GourdianSessionService) GetTemporaryData(ctx context.Context, key string) (interface{}, error) <span class="cov8" title="1">{
-        if key == "" </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">value, err := s.repo.GetTemporaryData(ctx, key)
-        if err != nil </span><span class="cov8" title="1">{
-                return nil, fmt.Errorf("failed to get temporary data: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">return value, nil</span>
-}
-
-func (s *GourdianSessionService) DeleteTemporaryData(ctx context.Context, key string) error <span class="cov8" title="1">{
-        if key == "" </span><span class="cov0" title="0">{
-                return fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">if err := s.repo.DeleteTemporaryData(ctx, key); err != nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("failed to delete temporary data: %w", err)
-        }</span>
-
-        <span class="cov8" title="1">return nil</span>
-}
-
-func (s *GourdianSessionService) CheckSessionQuota(ctx context.Context, userID uuid.UUID, ipAddress, userAgent *string) error <span class="cov8" title="1">{
-        if userID == uuid.Nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">if s.config.MaxUserSessions &gt; 0 </span><span class="cov8" title="1">{
-                activeSessions, err := s.GetActiveUserSessions(ctx, userID)
-                if err != nil </span><span class="cov0" title="0">{
-                        return fmt.Errorf("failed to check active sessions: %w", err)
-                }</span>
-
-                <span class="cov8" title="1">if len(activeSessions) &gt;= s.config.MaxUserSessions </span><span class="cov8" title="1">{
-                        return fmt.Errorf("%w: maximum number of sessions reached for user", ErrForbidden)
-                }</span>
-        }
-
-        <span class="cov8" title="1">if s.config.TrackClientDevices &amp;&amp; s.config.MaxSessionsPerDevice &gt; 0 &amp;&amp; userAgent != nil </span><span class="cov8" title="1">{
-                allSessions, err := s.GetActiveUserSessions(ctx, userID)
-                if err != nil </span><span class="cov0" title="0">{
-                        return fmt.Errorf("failed to check device sessions: %w", err)
-                }</span>
-
-                <span class="cov8" title="1">deviceSessions := 0
-                for _, session := range allSessions </span><span class="cov8" title="1">{
-                        if session.UserAgent != nil &amp;&amp; *session.UserAgent == *userAgent </span><span class="cov8" title="1">{
-                                deviceSessions++
-                        }</span>
-                }
-
-                <span class="cov8" title="1">if deviceSessions &gt;= s.config.MaxSessionsPerDevice </span><span class="cov8" title="1">{
-                        return fmt.Errorf("%w: maximum number of sessions reached for this device", ErrForbidden)
-                }</span>
-        }
-
-        <span class="cov8" title="1">if s.config.TrackIPAddresses &amp;&amp; s.config.MaxIPConnections &gt; 0 &amp;&amp; ipAddress != nil </span><span class="cov8" title="1">{
-                allSessions, err := s.repo.GetActiveSessionsByUserID(ctx, userID)
-                if err != nil </span><span class="cov0" title="0">{
-                        return fmt.Errorf("failed to check IP sessions: %w", err)
-                }</span>
-
-                <span class="cov8" title="1">ipSessions := 0
-                for _, session := range allSessions </span><span class="cov8" title="1">{
-                        if session.IPAddress != nil &amp;&amp; *session.IPAddress == *ipAddress </span><span class="cov8" title="1">{
-                                ipSessions++
-                        }</span>
-                }
-
-                <span class="cov8" title="1">if ipSessions &gt;= s.config.MaxIPConnections </span><span class="cov0" title="0">{
-                        return fmt.Errorf("%w: maximum number of connections reached from this IP", ErrForbidden)
-                }</span>
-        }
-
-        <span class="cov8" title="1">return nil</span>
-}
-
-func (s *GourdianSessionService) EnforceSessionLimits(ctx context.Context, userID uuid.UUID, ipAddress, userAgent *string) error <span class="cov8" title="1">{
-        if userID == uuid.Nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
-        }</span>
-
-        <span class="cov8" title="1">if err := s.CheckSessionQuota(ctx, userID, ipAddress, userAgent); err != nil </span><span class="cov8" title="1">{
-                return err
-        }</span>
-
-        <span class="cov8" title="1">if !s.config.AllowConcurrentSessions </span><span class="cov8" title="1">{
-                // When creating a new session, we want to revoke ALL existing sessions
-                if err := s.repo.RevokeUserSessions(ctx, userID); err != nil </span><span class="cov0" title="0">{
-                        return fmt.Errorf("failed to enforce single session policy: %w", err)
-                }</span>
-        }
-
-        <span class="cov8" title="1">return nil</span>
-}
-
-func (s *GourdianSessionService) isUserAgentBlocked(userAgent string) bool <span class="cov8" title="1">{
-        if len(s.config.BlockedUserAgents) == 0 </span><span class="cov8" title="1">{
-                return false
-        }</span>
-
-        <span class="cov8" title="1">uaLower := strings.ToLower(userAgent)
-        for _, blockedUA := range s.config.BlockedUserAgents </span><span class="cov8" title="1">{
-                if strings.Contains(uaLower, strings.ToLower(blockedUA)) </span><span class="cov8" title="1">{
-                        return true
-                }</span>
-        }
-
-        <span class="cov8" title="1">return false</span>
-}
-
-func NewGourdianRedisSession(redisClient *redis.Client, config *GourdianSessionConfig) GourdianSessionServiceInt <span class="cov8" title="1">{
-        redisRepo := NewGurdianSessionRedisRepository(redisClient)
-        return NewGourdianSessionService(redisRepo, config)
-}</span>
 </pre>
 		
 		</div>
