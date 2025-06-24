@@ -475,114 +475,140 @@ func TestMongoRepository_GetSessionByID(t *testing.T) {
 	// })
 }
 
-// func TestMongoRepository_UpdateSession(t *testing.T) {
-// 	db := setupTestMongoDB(t)
-// 	defer cleanupTestMongoDB(t, db)
+func TestMongoRepository_UpdateSession(t *testing.T) {
+	db := setupTestMongoDB(t)
+	defer cleanupTestMongoDB(t, db)
 
-// 	repo := NewGourdianSessionMongoRepository(db, false)
-// 	ctx := context.Background()
+	repo := NewGourdianSessionMongoRepository(db, false)
+	ctx := context.Background()
 
-// 	t.Run("successful update", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
+	t.Run("successful update", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
 
-// 		session.Username = "updateduser"
-// 		updated, err := repo.UpdateSession(ctx, session)
-// 		require.NoError(t, err)
-// 		assert.Equal(t, "updateduser", updated.Username)
+		session.Username = "updateduser"
+		updated, err := repo.UpdateSession(ctx, session)
+		require.NoError(t, err)
+		assert.Equal(t, "updateduser", updated.Username)
 
-// 		// Verify update in MongoDB
-// 		stored, err := repo.GetSessionByID(ctx, session.UUID)
-// 		require.NoError(t, err)
-// 		assert.Equal(t, "updateduser", stored.Username)
-// 	})
+		// Verify update in MongoDB
+		stored, err := repo.GetSessionByID(ctx, session.UUID)
+		require.NoError(t, err)
+		assert.Equal(t, "updateduser", stored.Username)
+	})
 
-// 	t.Run("update non-existent session", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
+	t.Run("update non-existent session", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
 
-// 		_, err := repo.UpdateSession(ctx, session)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session not found")
-// 	})
+		_, err := repo.UpdateSession(ctx, session)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session not found")
+	})
 
-// 	t.Run("cannot change user ID", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
+	// t.Run("cannot change user ID", func(t *testing.T) {
+	// 	// Create test data
+	// 	originalUserID := uuid.New()
+	// 	newUserID := uuid.New()
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+	// 	session := NewGurdianSessionObject(
+	// 		originalUserID,
+	// 		"testuser",
+	// 		nil,
+	// 		nil,
+	// 		[]Role{},
+	// 		30*time.Minute,
+	// 	)
 
-// 		originalUserID := session.UserID
-// 		session.UserID = uuid.New()
+	// 	// Create the session
+	// 	created, err := repo.CreateSession(ctx, session)
+	// 	require.NoError(t, err)
+	// 	require.NotNil(t, created)
 
-// 		_, err = repo.UpdateSession(ctx, session)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "cannot change user ID")
+	// 	// Verify session exists for original user
+	// 	sessions, err := repo.GetSessionsByUserID(ctx, originalUserID)
+	// 	require.NoError(t, err)
+	// 	require.Len(t, sessions, 1, "should find 1 session for original user")
+	// 	assert.Equal(t, created.UUID, sessions[0].UUID, "session UUID should match")
 
-// 		// Verify original user ID still works
-// 		sessions, err := repo.GetSessionsByUserID(ctx, originalUserID)
-// 		require.NoError(t, err)
-// 		assert.Len(t, sessions, 1)
-// 		assert.Equal(t, session.UUID, sessions[0].UUID)
-// 	})
-// }
+	// 	// Make a copy and try to change user ID
+	// 	modifiedSession := *created
+	// 	modifiedSession.UserID = newUserID
 
-// func TestMongoRepository_DeleteSession(t *testing.T) {
-// 	db := setupTestMongoDB(t)
-// 	defer cleanupTestMongoDB(t, db)
+	// 	// Attempt the update - should fail
+	// 	_, err = repo.UpdateSession(ctx, &modifiedSession)
+	// 	require.Error(t, err, "should error when trying to change user ID")
+	// 	assert.True(t, errors.Is(err, ErrForbidden), "should return ErrForbidden")
+	// 	assert.Contains(t, err.Error(), "cannot change user ID", "error should mention user ID change")
 
-// 	repo := NewGourdianSessionMongoRepository(db, false)
-// 	ctx := context.Background()
+	// 	// Verify no sessions exist for the new user ID
+	// 	newUserSessions, err := repo.GetSessionsByUserID(ctx, newUserID)
+	// 	require.NoError(t, err)
+	// 	assert.Empty(t, newUserSessions, "should be no sessions for new user ID")
 
-// 	t.Run("successful deletion", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
+	// 	// Verify original session still exists and is unchanged
+	// 	unchanged, err := repo.GetSessionByID(ctx, created.UUID)
+	// 	require.NoError(t, err, "original session should still exist")
+	// 	assert.Equal(t, originalUserID, unchanged.UserID, "user ID should not have changed")
+	// 	assert.Equal(t, created.UUID, unchanged.UUID, "UUID should not have changed")
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+	// 	// Verify still only one session for original user
+	// 	originalUserSessions, err := repo.GetSessionsByUserID(ctx, originalUserID)
+	// 	require.NoError(t, err)
+	// 	require.Len(t, originalUserSessions, 1, "should still be 1 session for original user")
+	// 	assert.Equal(t, created.UUID, originalUserSessions[0].UUID, "session UUID should match")
+	// })
+}
 
-// 		err = repo.DeleteSession(ctx, session.UUID)
-// 		require.NoError(t, err)
+func TestMongoRepository_DeleteSession(t *testing.T) {
+	db := setupTestMongoDB(t)
+	defer cleanupTestMongoDB(t, db)
 
-// 		_, err = repo.GetSessionByID(ctx, session.UUID)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session not found")
-// 	})
+	repo := NewGourdianSessionMongoRepository(db, false)
+	ctx := context.Background()
 
-// 	t.Run("delete non-existent session", func(t *testing.T) {
-// 		err := repo.DeleteSession(ctx, uuid.New())
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session not found")
-// 	})
-// }
+	t.Run("successful deletion", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+
+		err = repo.DeleteSession(ctx, session.UUID)
+		require.NoError(t, err)
+
+		_, err = repo.GetSessionByID(ctx, session.UUID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session not found")
+	})
+
+	t.Run("delete non-existent session", func(t *testing.T) {
+		err := repo.DeleteSession(ctx, uuid.New())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session not found")
+	})
+}
 
 // func TestMongoRepository_ValidateSessionByID(t *testing.T) {
 // 	db := setupTestMongoDB(t)
