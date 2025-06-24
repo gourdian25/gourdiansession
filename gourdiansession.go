@@ -1,3 +1,5 @@
+// File: gourdiansession.go
+
 package gourdiansession
 
 import (
@@ -10,14 +12,24 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/gourdian25/gourdiansession/errs"
 	"github.com/redis/go-redis/v9"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 const (
 	SessionStatusActive  string = "active"
 	SessionStatusExpired string = "expired"
 	SessionStatusRevoked string = "revoked"
+)
+
+var (
+	ErrConflict       = errors.New("conflict")
+	ErrNotFound       = errors.New("not found")
+	ErrForbidden      = errors.New("forbidden")
+	ErrInvalidInput   = errors.New("invalid input")
+	ErrInvalidSession = errors.New("invalid session")
 )
 
 // Role represents a role with its permissions in the session
@@ -37,7 +49,7 @@ type Permission struct {
 type GourdianSessionType struct {
 	ID            int64           `json:"id" bson:"id" gorm:"type:bigint;autoIncrement;uniqueIndex"`
 	UUID          uuid.UUID       `json:"uuid" bson:"uuid" gorm:"type:uuid;not null;uniqueIndex"`
-	UserID        uuid.UUID       `gorm:"type:uuid;not null;index:user_id;index:user_status"`
+	UserID        uuid.UUID       `json:"user_id" bson:"user_id" gorm:"type:uuid;not null;index:user_id;index:user_status"`
 	Authenticated bool            `json:"authenticated" bson:"authenticated"`
 	Username      string          `json:"username" bson:"username"`
 	Status        string          `json:"status" bson:"status" gorm:"type:varchar(16);index;index:user_status;index:status_expires"`
@@ -62,6 +74,7 @@ func NewGurdianSessionObject(
 	now := time.Now()
 
 	return &GourdianSessionType{
+		ID:            0,
 		UUID:          uuid.New(),
 		UserID:        userID,
 		Authenticated: true,
@@ -117,396 +130,619 @@ type GurdianSessionRepositoryInt interface {
 	DeleteTemporaryData(ctx context.Context, key string) error
 }
 
-const (
-	sessionKeyPrefix       = "session:"
-	userSessionsKeyPrefix  = "user_sessions:"
-	sessionDataKeyPrefix   = "session_data:"
-	tempDataKeyPrefix      = "temp_data:"
-	sessionExpiryThreshold = 5 * time.Minute
-)
-
-type GurdianRedisSessionRepository struct {
-	client *redis.Client
+type GourdianSessionMongoRepository struct {
+	sessionsCollection *mongo.Collection
+	tempDataCollection *mongo.Collection
+	useTransactions    bool
 }
 
-func NewGurdianRedisSessionRepository(client *redis.Client) GurdianSessionRepositoryInt {
-	return &GurdianRedisSessionRepository{
-		client: client,
+func NewGourdianSessionMongoRepository(db *mongo.Database, useTransactions bool) GurdianSessionRepositoryInt {
+	return &GourdianSessionMongoRepository{
+		sessionsCollection: db.Collection("sessions"),
+		tempDataCollection: db.Collection("temp_data"),
+		useTransactions:    useTransactions,
 	}
 }
 
-func (r *GurdianRedisSessionRepository) sessionKey(sessionID uuid.UUID) string {
-	return sessionKeyPrefix + sessionID.String()
-}
-
-func (r *GurdianRedisSessionRepository) userSessionsKey(userID uuid.UUID) string {
-	return userSessionsKeyPrefix + userID.String()
-}
-
-func (r *GurdianRedisSessionRepository) sessionDataKey(sessionID uuid.UUID) string {
-	return sessionDataKeyPrefix + sessionID.String()
-}
-
-func (r *GurdianRedisSessionRepository) tempDataKey(key string) string {
-	return tempDataKeyPrefix + key
-}
-
-func (r *GurdianRedisSessionRepository) CreateSession(ctx context.Context, session *GourdianSessionType) (*GourdianSessionType, error) {
-	if session == nil {
-		return nil, errs.RepositoryError("CreateSession", errs.ErrInvalidInput, "session cannot be nil")
+func (r *GourdianSessionMongoRepository) withTransaction(ctx context.Context, fn func(sessionCtx mongo.SessionContext) error) error {
+	if !r.useTransactions {
+		return fn(nil)
 	}
 
-	// Serialize session
-	sessionJSON, err := json.Marshal(session)
+	session, err := r.sessionsCollection.Database().Client().StartSession()
 	if err != nil {
-		return nil, errs.RepositoryError("CreateSession", err, "failed to marshal session")
+		return fmt.Errorf("failed to start session: %w", err)
+	}
+	defer session.EndSession(ctx)
+
+	transactionFn := func(sessionCtx mongo.SessionContext) (interface{}, error) {
+		return nil, fn(sessionCtx)
 	}
 
-	// Use transaction to ensure atomicity
-	pipe := r.client.TxPipeline()
-	pipe.Set(ctx, r.sessionKey(session.UUID), sessionJSON, time.Until(session.ExpiresAt))
-	pipe.SAdd(ctx, r.userSessionsKey(session.UserID), session.UUID.String())
-	pipe.ExpireAt(ctx, r.userSessionsKey(session.UserID), session.ExpiresAt)
-
-	_, err = pipe.Exec(ctx)
-	if err != nil {
-		return nil, errs.RepositoryError("CreateSession", err, "failed to store session in Redis")
-	}
-
-	return session, nil
-}
-
-func (r *GurdianRedisSessionRepository) RevokeSessionByID(ctx context.Context, sessionID uuid.UUID) error {
-	session, err := r.GetSessionByID(ctx, sessionID)
-	if err != nil {
-		return err
-	}
-
-	session.Status = SessionStatusRevoked
-	session.ExpiresAt = time.Now()
-
-	_, err = r.UpdateSession(ctx, session)
+	_, err = session.WithTransaction(ctx, transactionFn)
 	return err
 }
 
-func (r *GurdianRedisSessionRepository) GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) {
-	sessionJSON, err := r.client.Get(ctx, r.sessionKey(sessionID)).Result()
-	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return nil, errs.RepositoryError("GetSessionByID", errs.ErrNotFound, "session not found")
-		}
-		return nil, errs.RepositoryError("GetSessionByID", err, "failed to get session from Redis")
+func (r *GourdianSessionMongoRepository) CreateSession(ctx context.Context, session *GourdianSessionType) (*GourdianSessionType, error) {
+	if session == nil {
+		return nil, fmt.Errorf("%w: session cannot be nil", ErrInvalidInput)
 	}
 
-	var session GourdianSessionType
-	err = json.Unmarshal([]byte(sessionJSON), &session)
+	var createdSession *GourdianSessionType
+
+	err := r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error {
+		// Check for existing session with same UUID
+		filter := bson.M{"uuid": session.UUID}
+		count, err := r.sessionsCollection.CountDocuments(sessionCtx, filter)
+		if err != nil {
+			return fmt.Errorf("failed to check session existence: %w", err)
+		}
+		if count > 0 {
+			return fmt.Errorf("%w: session already exists", ErrConflict)
+		}
+
+		// Insert new session with current timestamps
+		session.CreatedAt = time.Now()
+		session.LastActivity = time.Now()
+
+		_, err = r.sessionsCollection.InsertOne(sessionCtx, session)
+		if err != nil {
+			if mongo.IsDuplicateKeyError(err) {
+				return fmt.Errorf("%w: session with this UUID already exists", ErrConflict)
+			}
+			return fmt.Errorf("failed to create session: %w", err)
+		}
+
+		// Retrieve the created session to return
+		createdSession, _ = r.GetSessionByID(sessionCtx, session.UUID)
+		return nil
+	})
+
 	if err != nil {
-		return nil, errs.RepositoryError("GetSessionByID", err, "failed to unmarshal session")
+		return nil, err
+	}
+
+	return createdSession, nil
+}
+
+func (r *GourdianSessionMongoRepository) RevokeSessionByID(ctx context.Context, sessionID uuid.UUID) error {
+	return r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error {
+		// First get the session to ensure it exists and is active
+		filter := bson.M{
+			"uuid":   sessionID,
+			"status": SessionStatusActive,
+		}
+
+		var session GourdianSessionType
+		err := r.sessionsCollection.FindOne(sessionCtx, filter).Decode(&session)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				return fmt.Errorf("%w: active session not found", ErrNotFound)
+			}
+			return fmt.Errorf("failed to find session: %w", err)
+		}
+
+		// Update to revoke using the UUID filter
+		update := bson.M{
+			"$set": bson.M{
+				"status":       SessionStatusRevoked,
+				"expiresAt":    time.Now().Add(1 * time.Minute),
+				"updatedAt":    time.Now(),
+				"lastActivity": time.Now(),
+			},
+		}
+
+		// Use UpdateOne with the UUID filter instead of UpdateByID
+		_, err = r.sessionsCollection.UpdateOne(
+			sessionCtx,
+			bson.M{"uuid": sessionID},
+			update,
+		)
+		return err
+	})
+}
+
+func (r *GourdianSessionMongoRepository) GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) {
+	filter := bson.M{"uuid": sessionID}
+
+	var session GourdianSessionType
+	err := r.sessionsCollection.FindOne(ctx, filter).Decode(&session)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, fmt.Errorf("%w: session not found", ErrNotFound)
+		}
+		return nil, fmt.Errorf("failed to get session: %w", err)
+	}
+
+	// Check if session is deleted
+	if session.DeletedAt != nil && !session.DeletedAt.IsZero() {
+		return nil, fmt.Errorf("%w: session has been deleted", ErrNotFound)
+	}
+
+	// Check if session is expired
+	if session.ExpiresAt.Before(time.Now()) {
+		// Update session status to expired if it's not already
+		if session.Status != SessionStatusExpired {
+			update := bson.M{
+				"$set": bson.M{
+					"status":    SessionStatusExpired,
+					"updatedAt": time.Now(),
+				},
+			}
+
+			_, updateErr := r.sessionsCollection.UpdateOne(
+				ctx,
+				filter,
+				update,
+			)
+			if updateErr != nil {
+				log.Printf("failed to mark session as expired: %v", updateErr)
+			}
+		}
+		return nil, fmt.Errorf("%w: session has expired", ErrInvalidSession)
+	}
+
+	// Check session status (after expiration check)
+	if session.Status != SessionStatusActive {
+		return nil, fmt.Errorf("%w: session is not active", ErrInvalidSession)
 	}
 
 	return &session, nil
 }
 
-func (r *GurdianRedisSessionRepository) UpdateSession(ctx context.Context, session *GourdianSessionType) (*GourdianSessionType, error) {
+func (r *GourdianSessionMongoRepository) UpdateSession(ctx context.Context, session *GourdianSessionType) (*GourdianSessionType, error) {
 	if session == nil {
-		return nil, errs.RepositoryError("UpdateSession", errs.ErrInvalidInput, "session cannot be nil")
+		return nil, fmt.Errorf("%w: session cannot be nil", ErrInvalidInput)
 	}
 
-	sessionJSON, err := json.Marshal(session)
+	var updatedSession *GourdianSessionType
+
+	err := r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error {
+		filter := bson.M{"uuid": session.UUID}
+
+		// Ensure we don't update critical fields that shouldn't change
+		update := bson.M{
+			"$set": bson.M{
+				"authenticated": session.Authenticated,
+				"username":      session.Username,
+				"status":        session.Status,
+				"ipAddress":     session.IPAddress,
+				"userAgent":     session.UserAgent,
+				"roles":         session.Roles,
+				"expiresAt":     session.ExpiresAt,
+				"lastActivity":  session.LastActivity,
+				"deletedAt":     session.DeletedAt,
+				"updatedAt":     time.Now(),
+			},
+		}
+
+		opts := options.FindOneAndUpdate().
+			SetReturnDocument(options.After)
+
+		err := r.sessionsCollection.FindOneAndUpdate(
+			sessionCtx,
+			filter,
+			update,
+			opts,
+		).Decode(&updatedSession)
+
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				return fmt.Errorf("%w: session not found", ErrNotFound)
+			}
+			return fmt.Errorf("failed to update session: %w", err)
+		}
+
+		return nil
+	})
+
 	if err != nil {
-		return nil, errs.RepositoryError("UpdateSession", err, "failed to marshal session")
+		return nil, err
 	}
 
-	ttl := time.Until(session.ExpiresAt)
-	if ttl < 0 {
-		ttl = 0
-	}
-
-	err = r.client.Set(ctx, r.sessionKey(session.UUID), sessionJSON, ttl).Err()
-	if err != nil {
-		return nil, errs.RepositoryError("UpdateSession", err, "failed to update session in Redis")
-	}
-
-	return session, nil
+	return updatedSession, nil
 }
 
-func (r *GurdianRedisSessionRepository) DeleteSession(ctx context.Context, sessionID uuid.UUID) error {
-	session, err := r.GetSessionByID(ctx, sessionID)
-	if err != nil {
-		return err
-	}
+func (r *GourdianSessionMongoRepository) DeleteSession(ctx context.Context, sessionID uuid.UUID) error {
+	return r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error {
+		// First delete associated session data
+		_, err := r.sessionsCollection.DeleteMany(
+			sessionCtx,
+			bson.M{"sessionId": sessionID},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to delete session data: %w", err)
+		}
 
-	pipe := r.client.TxPipeline()
-	pipe.Del(ctx, r.sessionKey(sessionID))
-	pipe.SRem(ctx, r.userSessionsKey(session.UserID), sessionID.String())
-	pipe.Del(ctx, r.sessionDataKey(sessionID))
+		// Then delete the session itself
+		result, err := r.sessionsCollection.DeleteOne(
+			sessionCtx,
+			bson.M{"uuid": sessionID},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to delete session: %w", err)
+		}
 
-	_, err = pipe.Exec(ctx)
-	if err != nil {
-		return errs.RepositoryError("DeleteSession", err, "failed to delete session from Redis")
-	}
+		if result.DeletedCount == 0 {
+			return fmt.Errorf("%w: session not found", ErrNotFound)
+		}
 
-	return nil
+		return nil
+	})
 }
 
-func (r *GurdianRedisSessionRepository) GetSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error) {
-	sessionIDs, err := r.client.SMembers(ctx, r.userSessionsKey(userID)).Result()
+func (r *GourdianSessionMongoRepository) GetSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error) {
+	// Read operation doesn't need transaction
+	filter := bson.M{
+		"userId":    userID,
+		"deletedAt": nil, // Only non-deleted sessions
+	}
+
+	cursor, err := r.sessionsCollection.Find(ctx, filter)
 	if err != nil {
-		return nil, errs.RepositoryError("GetSessionsByUserID", err, "failed to get user sessions from Redis")
+		return nil, fmt.Errorf("failed to find sessions: %w", err)
 	}
 
 	var sessions []*GourdianSessionType
-	for _, sessionIDStr := range sessionIDs {
-		sessionID, err := uuid.Parse(sessionIDStr)
-		if err != nil {
-			log.Printf("invalid session ID in user sessions set: %s", sessionIDStr)
-			continue
-		}
+	if err = cursor.All(ctx, &sessions); err != nil {
+		return nil, fmt.Errorf("failed to decode sessions: %w", err)
+	}
 
-		session, err := r.GetSessionByID(ctx, sessionID)
-		if err != nil {
-			if errors.Is(err, errs.ErrNotFound) {
-				// Clean up stale session reference
-				_ = r.client.SRem(ctx, r.userSessionsKey(userID), sessionIDStr)
-				continue
-			}
-			return nil, errs.RepositoryError("GetSessionsByUserID", err, fmt.Sprintf("failed to get session %s", sessionID))
+	// Filter out expired sessions
+	var validSessions []*GourdianSessionType
+	for _, session := range sessions {
+		if session.ExpiresAt.After(time.Now()) {
+			validSessions = append(validSessions, session)
 		}
+	}
 
-		sessions = append(sessions, session)
+	return validSessions, nil
+}
+
+func (r *GourdianSessionMongoRepository) GetActiveSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error) {
+	now := time.Now()
+	filter := bson.M{
+		"user_id":    userID, // Make sure this matches the field name in your documents
+		"status":     SessionStatusActive,
+		"deleted_at": nil,                // Using the actual field name from your struct tag
+		"expires_at": bson.M{"$gt": now}, // Using the actual field name from your struct tag
+	}
+
+	cursor, err := r.sessionsCollection.Find(ctx, filter)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find active sessions: %w", err)
+	}
+
+	var sessions []*GourdianSessionType
+	if err = cursor.All(ctx, &sessions); err != nil {
+		return nil, fmt.Errorf("failed to decode active sessions: %w", err)
 	}
 
 	return sessions, nil
 }
 
-func (r *GurdianRedisSessionRepository) GetActiveSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error) {
-	allSessions, err := r.GetSessionsByUserID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	var activeSessions []*GourdianSessionType
-	for _, session := range allSessions {
-		if session.Status == SessionStatusActive && session.ExpiresAt.After(time.Now()) {
-			activeSessions = append(activeSessions, session)
+func (r *GourdianSessionMongoRepository) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error {
+	return r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error {
+		now := time.Now()
+		filter := bson.M{
+			"userId":    userID,
+			"status":    SessionStatusActive,
+			"expiresAt": bson.M{"$gt": now},
+			"deletedAt": nil,
 		}
-	}
 
-	return activeSessions, nil
+		update := bson.M{
+			"$set": bson.M{
+				"status":    SessionStatusRevoked,
+				"expiresAt": now.Add(1 * time.Minute),
+				"updatedAt": now,
+			},
+		}
+
+		_, err := r.sessionsCollection.UpdateMany(sessionCtx, filter, update)
+		if err != nil {
+			return fmt.Errorf("failed to revoke user sessions: %w", err)
+		}
+
+		return nil
+	})
 }
 
-func (r *GurdianRedisSessionRepository) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error {
-	sessions, err := r.GetSessionsByUserID(ctx, userID)
-	if err != nil {
+func (r *GourdianSessionMongoRepository) RevokeSessionsExcept(ctx context.Context, userID, exceptSessionID uuid.UUID) error {
+	return r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error {
+		filter := bson.M{
+			"userId":    userID,
+			"uuid":      bson.M{"$ne": exceptSessionID},
+			"status":    SessionStatusActive,
+			"expiresAt": bson.M{"$gt": time.Now()},
+			"deletedAt": bson.M{"$exists": false},
+		}
+
+		update := bson.M{
+			"$set": bson.M{
+				"status":    SessionStatusRevoked,
+				"expiresAt": time.Now().Add(1 * time.Minute),
+				"updatedAt": time.Now(),
+			},
+		}
+
+		_, err := r.sessionsCollection.UpdateMany(sessionCtx, filter, update)
+		if err != nil {
+			return fmt.Errorf("failed to revoke other user sessions: %w", err)
+		}
+
+		return nil
+	})
+}
+
+func (r *GourdianSessionMongoRepository) ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) error {
+	return r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error {
+		// First get the current session to check status and get current expiry
+		session, err := r.GetSessionByID(sessionCtx, sessionID)
+		if err != nil {
+			return err
+		}
+
+		if session.Status != SessionStatusActive {
+			return fmt.Errorf("%w: session is not active", ErrInvalidSession)
+		}
+
+		// Extend from the current expiration time, not from now
+		newExpiry := session.ExpiresAt.Add(duration)
+
+		filter := bson.M{"uuid": sessionID}
+		update := bson.M{
+			"$set": bson.M{
+				"expires_at":    newExpiry,
+				"last_activity": time.Now(),
+				"updated_at":    time.Now(),
+			},
+		}
+
+		_, err = r.sessionsCollection.UpdateOne(sessionCtx, filter, update)
 		return err
+	})
+}
+
+func (r *GourdianSessionMongoRepository) UpdateSessionActivity(ctx context.Context, sessionID uuid.UUID) error {
+	filter := bson.M{"uuid": sessionID}
+	update := bson.M{
+		"$set": bson.M{
+			"lastActivity": time.Now(),
+			"updatedAt":    time.Now(),
+		},
 	}
 
-	for _, session := range sessions {
-		if session.Status == SessionStatusActive {
-			session.Status = SessionStatusRevoked
-			session.ExpiresAt = time.Now()
-			_, err = r.UpdateSession(ctx, session)
-			if err != nil {
-				return err
-			}
-		}
+	_, err := r.sessionsCollection.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("failed to update session activity: %w", err)
 	}
 
 	return nil
 }
 
-func (r *GurdianRedisSessionRepository) RevokeSessionsExcept(ctx context.Context, userID, exceptSessionID uuid.UUID) error {
-	sessions, err := r.GetSessionsByUserID(ctx, userID)
-	if err != nil {
-		return err
-	}
+func (r *GourdianSessionMongoRepository) ValidateSessionByID(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) {
+	// This is a read operation but has side effects, so we use transaction
+	var session *GourdianSessionType
+	var validateErr error
 
-	for _, session := range sessions {
-		if session.UUID != exceptSessionID && session.Status == SessionStatusActive {
-			session.Status = SessionStatusRevoked
-			session.ExpiresAt = time.Now()
-			_, err = r.UpdateSession(ctx, session)
-			if err != nil {
-				return err
-			}
+	err := r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error {
+		session, validateErr = r.GetSessionByID(sessionCtx, sessionID)
+		if validateErr != nil {
+			return validateErr
 		}
-	}
 
-	return nil
-}
+		if session.Status != SessionStatusActive {
+			validateErr = fmt.Errorf("%w: session is not active", ErrInvalidSession)
+			return validateErr
+		}
 
-func (r *GurdianRedisSessionRepository) ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) error {
-	session, err := r.GetSessionByID(ctx, sessionID)
-	if err != nil {
-		return err
-	}
+		if session.ExpiresAt.Before(time.Now()) {
+			// Update session status to expired
+			update := bson.M{
+				"$set": bson.M{
+					"status":    SessionStatusExpired,
+					"updatedAt": time.Now(),
+				},
+			}
 
-	if session.Status != SessionStatusActive {
-		return errs.RepositoryError("ExtendSession", errs.ErrInvalidSession, "cannot extend inactive session")
-	}
+			_, updateErr := r.sessionsCollection.UpdateByID(
+				sessionCtx,
+				session.ID,
+				update,
+			)
+			if updateErr != nil {
+				log.Printf("failed to mark session as expired: %v", updateErr)
+			}
 
-	session.ExpiresAt = time.Now().Add(duration)
-	_, err = r.UpdateSession(ctx, session)
-	return err
-}
+			validateErr = fmt.Errorf("%w: session has expired", ErrInvalidSession)
+			return validateErr
+		}
 
-func (r *GurdianRedisSessionRepository) UpdateSessionActivity(ctx context.Context, sessionID uuid.UUID) error {
-	session, err := r.GetSessionByID(ctx, sessionID)
-	if err != nil {
-		return err
-	}
+		return nil
+	})
 
-	session.LastActivity = time.Now()
-	_, err = r.UpdateSession(ctx, session)
-	return err
-}
-
-func (r *GurdianRedisSessionRepository) ValidateSessionByID(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) {
-	session, err := r.GetSessionByID(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
-
-	if session.Status != SessionStatusActive {
-		return nil, errs.RepositoryError("ValidateSessionByID", errs.ErrInvalidSession, "session is not active")
-	}
-
-	if session.ExpiresAt.Before(time.Now()) {
-		session.Status = SessionStatusExpired
-		_, _ = r.UpdateSession(ctx, session) // Best effort update
-		return nil, errs.RepositoryError("ValidateSessionByID", errs.ErrInvalidSession, "session has expired")
+	if validateErr != nil {
+		return nil, validateErr
 	}
 
 	return session, nil
 }
 
-func (r *GurdianRedisSessionRepository) ValidateSessionByIDIPUA(ctx context.Context, sessionID uuid.UUID, ipAddress, userAgent string) (*GourdianSessionType, error) {
+func (r *GourdianSessionMongoRepository) ValidateSessionByIDIPUA(ctx context.Context, sessionID uuid.UUID, ipAddress, userAgent string) (*GourdianSessionType, error) {
 	session, err := r.ValidateSessionByID(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 
 	if session.IPAddress != nil && *session.IPAddress != ipAddress {
-		return nil, errs.RepositoryError("ValidateSessionByIDIPUA", errs.ErrInvalidSession, "IP address mismatch")
+		return nil, fmt.Errorf("%w: IP address mismatch", ErrInvalidSession)
 	}
 
 	if session.UserAgent != nil && *session.UserAgent != userAgent {
-		return nil, errs.RepositoryError("ValidateSessionByIDIPUA", errs.ErrInvalidSession, "user agent mismatch")
+		return nil, fmt.Errorf("%w: user agent mismatch", ErrInvalidSession)
 	}
 
 	return session, nil
 }
 
-func (r *GurdianRedisSessionRepository) SetSessionData(ctx context.Context, sessionID uuid.UUID, key string, value interface{}) error {
+func (r *GourdianSessionMongoRepository) SetSessionData(ctx context.Context, sessionID uuid.UUID, key string, value interface{}) error {
+	// Validate session exists and is active
 	_, err := r.ValidateSessionByID(ctx, sessionID)
 	if err != nil {
 		return err
 	}
 
-	dataKey := r.sessionDataKey(sessionID)
+	// Marshal the value to JSON
 	valueJSON, err := json.Marshal(value)
 	if err != nil {
-		return errs.RepositoryError("SetSessionData", err, "failed to marshal session data")
+		return fmt.Errorf("failed to marshal session data: %w", err)
 	}
 
-	session, err := r.GetSessionByID(ctx, sessionID)
-	if err != nil {
-		return err
-	}
+	// Create a composite key for the session data
+	compositeKey := fmt.Sprintf("%s:%s", sessionID.String(), key)
 
-	err = r.client.HSet(ctx, dataKey, key, valueJSON).Err()
-	if err != nil {
-		return errs.RepositoryError("SetSessionData", err, "failed to set session data in Redis")
+	// Upsert the session data
+	filter := bson.M{"key": compositeKey}
+	update := bson.M{
+		"$set": bson.M{
+			"value":     valueJSON,
+			"updatedAt": time.Now(),
+		},
+		"$setOnInsert": bson.M{
+			"createdAt": time.Now(),
+			"sessionId": sessionID,
+		},
 	}
+	opts := options.Update().SetUpsert(true)
 
-	// Set TTL on the hash if it doesn't exist yet
-	ttl, err := r.client.TTL(ctx, dataKey).Result()
+	_, err = r.sessionsCollection.UpdateOne(ctx, filter, update, opts)
 	if err != nil {
-		return errs.RepositoryError("SetSessionData", err, "failed to check TTL for session data")
-	}
-	if ttl < 0 { // No TTL set
-		err = r.client.ExpireAt(ctx, dataKey, session.ExpiresAt).Err()
-		if err != nil {
-			return errs.RepositoryError("SetSessionData", err, "failed to set TTL for session data")
-		}
+		return fmt.Errorf("failed to set session data: %w", err)
 	}
 
 	return nil
 }
 
-func (r *GurdianRedisSessionRepository) GetSessionData(ctx context.Context, sessionID uuid.UUID, key string) (interface{}, error) {
+func (r *GourdianSessionMongoRepository) GetSessionData(ctx context.Context, sessionID uuid.UUID, key string) (interface{}, error) {
+	// Validate session exists and is active
 	_, err := r.ValidateSessionByID(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 
-	valueJSON, err := r.client.HGet(ctx, r.sessionDataKey(sessionID), key).Result()
+	// Create a composite key for the session data
+	compositeKey := fmt.Sprintf("%s:%s", sessionID.String(), key)
+
+	filter := bson.M{"key": compositeKey}
+	var result struct {
+		Value []byte `bson:"value"`
+	}
+
+	err = r.sessionsCollection.FindOne(ctx, filter).Decode(&result)
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return nil, errs.RepositoryError("GetSessionData", errs.ErrNotFound, "session data not found")
+		if err == mongo.ErrNoDocuments {
+			return nil, fmt.Errorf("%w: session data not found", ErrNotFound)
 		}
-		return nil, errs.RepositoryError("GetSessionData", err, "failed to get session data from Redis")
+		return nil, fmt.Errorf("failed to get session data: %w", err)
 	}
 
 	var value interface{}
-	err = json.Unmarshal([]byte(valueJSON), &value)
+	err = json.Unmarshal(result.Value, &value)
 	if err != nil {
-		return nil, errs.RepositoryError("GetSessionData", err, "failed to unmarshal session data")
+		return nil, fmt.Errorf("failed to unmarshal session data: %w", err)
 	}
 
 	return value, nil
 }
 
-func (r *GurdianRedisSessionRepository) DeleteSessionData(ctx context.Context, sessionID uuid.UUID, key string) error {
+func (r *GourdianSessionMongoRepository) DeleteSessionData(ctx context.Context, sessionID uuid.UUID, key string) error {
+	// Validate session exists and is active
 	_, err := r.ValidateSessionByID(ctx, sessionID)
 	if err != nil {
 		return err
 	}
 
-	err = r.client.HDel(ctx, r.sessionDataKey(sessionID), key).Err()
+	// Create a composite key for the session data
+	compositeKey := fmt.Sprintf("%s:%s", sessionID.String(), key)
+
+	filter := bson.M{"key": compositeKey}
+	_, err = r.sessionsCollection.DeleteOne(ctx, filter)
 	if err != nil {
-		return errs.RepositoryError("DeleteSessionData", err, "failed to delete session data from Redis")
+		return fmt.Errorf("failed to delete session data: %w", err)
 	}
 
 	return nil
 }
 
-func (r *GurdianRedisSessionRepository) SetTemporaryData(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+func (r *GourdianSessionMongoRepository) SetTemporaryData(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+	// Marshal the value to JSON
 	valueJSON, err := json.Marshal(value)
 	if err != nil {
-		return errs.RepositoryError("SetTemporaryData", err, "failed to marshal temporary data")
+		return fmt.Errorf("failed to marshal temporary data: %w", err)
 	}
 
-	err = r.client.Set(ctx, r.tempDataKey(key), valueJSON, ttl).Err()
+	// Create the document with TTL index
+	doc := bson.M{
+		"key":       key,
+		"value":     valueJSON,
+		"createdAt": time.Now(),
+		"expiresAt": time.Now().Add(ttl),
+		"updatedAt": time.Now(),
+	}
+
+	// Upsert the temporary data
+	filter := bson.M{"key": key}
+	update := bson.M{"$set": doc}
+	opts := options.Update().SetUpsert(true)
+
+	_, err = r.tempDataCollection.UpdateOne(ctx, filter, update, opts)
 	if err != nil {
-		return errs.RepositoryError("SetTemporaryData", err, "failed to set temporary data in Redis")
+		return fmt.Errorf("failed to set temporary data: %w", err)
 	}
 
 	return nil
 }
 
-func (r *GurdianRedisSessionRepository) GetTemporaryData(ctx context.Context, key string) (interface{}, error) {
-	valueJSON, err := r.client.Get(ctx, r.tempDataKey(key)).Result()
+func (r *GourdianSessionMongoRepository) GetTemporaryData(ctx context.Context, key string) (interface{}, error) {
+	filter := bson.M{"key": key}
+	var result struct {
+		Value     []byte    `bson:"value"`
+		ExpiresAt time.Time `bson:"expiresAt"`
+	}
+
+	err := r.tempDataCollection.FindOne(ctx, filter).Decode(&result)
 	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return nil, errs.RepositoryError("GetTemporaryData", errs.ErrNotFound, "temporary data not found")
+		if err == mongo.ErrNoDocuments {
+			return nil, fmt.Errorf("%w: temporary data not found", ErrNotFound)
 		}
-		return nil, errs.RepositoryError("GetTemporaryData", err, "failed to get temporary data from Redis")
+		return nil, fmt.Errorf("failed to get temporary data: %w", err)
+	}
+
+	// Check if data is expired
+	if result.ExpiresAt.Before(time.Now()) {
+		// Delete expired data
+		_, _ = r.tempDataCollection.DeleteOne(ctx, filter)
+		return nil, fmt.Errorf("%w: temporary data has expired", ErrNotFound)
 	}
 
 	var value interface{}
-	err = json.Unmarshal([]byte(valueJSON), &value)
+	err = json.Unmarshal(result.Value, &value)
 	if err != nil {
-		return nil, errs.RepositoryError("GetTemporaryData", err, "failed to unmarshal temporary data")
+		return nil, fmt.Errorf("failed to unmarshal temporary data: %w", err)
 	}
 
 	return value, nil
 }
 
-func (r *GurdianRedisSessionRepository) DeleteTemporaryData(ctx context.Context, key string) error {
-	err := r.client.Del(ctx, r.tempDataKey(key)).Err()
+func (r *GourdianSessionMongoRepository) DeleteTemporaryData(ctx context.Context, key string) error {
+	filter := bson.M{"key": key}
+	_, err := r.tempDataCollection.DeleteOne(ctx, filter)
 	if err != nil {
-		return errs.RepositoryError("DeleteTemporaryData", err, "failed to delete temporary data from Redis")
+		return fmt.Errorf("failed to delete temporary data: %w", err)
 	}
 
 	return nil
@@ -575,34 +811,28 @@ type GourdianSessionService struct {
 }
 
 func NewGourdianSessionService(repo GurdianSessionRepositoryInt, config *GourdianSessionConfig) GourdianSessionServiceInt {
-
 	return &GourdianSessionService{
 		repo:   repo,
 		config: config,
 	}
 }
 
-// CreateSession creates a new session for the user with proper validation
 func (s *GourdianSessionService) CreateSession(ctx context.Context, userID uuid.UUID, username string, ipAddress, userAgent *string, roles []Role) (*GourdianSessionType, error) {
-	// Validate input
 	if userID == uuid.Nil {
-		return nil, errs.ServiceError("CreateSession", errs.ErrInvalidInput, "user ID cannot be empty")
+		return nil, fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
 	}
 	if username == "" {
-		return nil, errs.ServiceError("CreateSession", errs.ErrInvalidInput, "username cannot be empty")
+		return nil, fmt.Errorf("%w: username cannot be empty", ErrInvalidInput)
 	}
 
-	// Check if user agent is blocked
 	if userAgent != nil && s.isUserAgentBlocked(*userAgent) {
-		return nil, errs.ServiceError("CreateSession", errs.ErrForbidden, "user agent is blocked")
+		return nil, fmt.Errorf("%w: user agent is blocked", ErrForbidden)
 	}
 
-	// Enforce session limits
 	if err := s.EnforceSessionLimits(ctx, userID, ipAddress, userAgent); err != nil {
 		return nil, err
 	}
 
-	// Create new session object
 	session := NewGurdianSessionObject(
 		userID,
 		username,
@@ -612,371 +842,327 @@ func (s *GourdianSessionService) CreateSession(ctx context.Context, userID uuid.
 		s.config.DefaultSessionDuration,
 	)
 
-	// Store session
 	createdSession, err := s.repo.CreateSession(ctx, session)
 	if err != nil {
-		return nil, errs.ServiceError("CreateSession", err, "failed to create session")
+		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
 
 	return createdSession, nil
 }
 
-// RevokeSession revokes a session by ID
 func (s *GourdianSessionService) RevokeSession(ctx context.Context, sessionID uuid.UUID) error {
 	if sessionID == uuid.Nil {
-		return errs.ServiceError("RevokeSession", errs.ErrInvalidInput, "session ID cannot be empty")
+		return fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
 	}
 
-	err := s.repo.RevokeSessionByID(ctx, sessionID)
-	if err != nil {
-		return errs.ServiceError("RevokeSession", err, "failed to revoke session")
+	if err := s.repo.RevokeSessionByID(ctx, sessionID); err != nil {
+		return fmt.Errorf("failed to revoke session: %w", err)
 	}
 
 	return nil
 }
 
-// GetSession retrieves a session by ID
 func (s *GourdianSessionService) GetSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) {
 	if sessionID == uuid.Nil {
-		return nil, errs.ServiceError("GetSession", errs.ErrInvalidInput, "session ID cannot be empty")
+		return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
 	}
 
 	session, err := s.repo.GetSessionByID(ctx, sessionID)
 	if err != nil {
-		return nil, errs.ServiceError("GetSession", err, "failed to get session")
+		return nil, fmt.Errorf("failed to get session: %w", err)
 	}
 
 	return session, nil
 }
 
-// RefreshSession refreshes a session if it's within the renewal window
 func (s *GourdianSessionService) RefreshSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) {
-	if sessionID == uuid.Nil {
-		return nil, errs.ServiceError("RefreshSession", errs.ErrInvalidInput, "session ID cannot be empty")
-	}
-
-	// Get and validate session
 	session, err := s.ValidateSession(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check if session is within renewal window
-	renewalTime := session.ExpiresAt.Add(-s.config.SessionRenewalWindow)
-	if time.Now().Before(renewalTime) {
-		return session, nil
+	now := time.Now()
+	timeRemaining := session.ExpiresAt.Sub(now)
+
+	// Debug log
+	log.Printf("Now: %v, TimeRemaining: %v, RenewalWindow: %v", now, timeRemaining, s.config.SessionRenewalWindow)
+
+	// Renew if we're within the renewal window
+	if timeRemaining <= s.config.SessionRenewalWindow {
+		newExpiry := now.Add(s.config.DefaultSessionDuration)
+		log.Printf("Extending session from %v to %v", session.ExpiresAt, newExpiry)
+
+		session.ExpiresAt = newExpiry
+		session.LastActivity = now
+
+		updated, err := s.repo.UpdateSession(ctx, session)
+		if err != nil {
+			return nil, fmt.Errorf("failed to update session: %w", err)
+		}
+		return updated, nil
 	}
 
-	// Extend session
-	newExpiry := time.Now().Add(s.config.DefaultSessionDuration)
-	session.ExpiresAt = newExpiry
-	session.LastActivity = time.Now()
-
-	updatedSession, err := s.repo.UpdateSession(ctx, session)
-	if err != nil {
-		return nil, errs.ServiceError("RefreshSession", err, "failed to update session")
-	}
-
-	return updatedSession, nil
+	return session, nil
 }
 
-// ExtendSession extends a session's duration
 func (s *GourdianSessionService) ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) (*GourdianSessionType, error) {
 	if sessionID == uuid.Nil {
-		return nil, errs.ServiceError("ExtendSession", errs.ErrInvalidInput, "session ID cannot be empty")
+		return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
 	}
 	if duration <= 0 {
-		return nil, errs.ServiceError("ExtendSession", errs.ErrInvalidInput, "duration must be positive")
+		return nil, fmt.Errorf("%w: duration must be positive", ErrInvalidInput)
 	}
 
-	// Get and validate session
 	session, err := s.ValidateSession(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Extend session
-	err = s.repo.ExtendSession(ctx, session.UUID, duration)
-	if err != nil {
-		return nil, errs.ServiceError("ExtendSession", err, "failed to extend session")
+	if err := s.repo.ExtendSession(ctx, session.UUID, duration); err != nil {
+		return nil, fmt.Errorf("failed to extend session: %w", err)
 	}
 
-	// Get updated session
 	updatedSession, err := s.repo.GetSessionByID(ctx, sessionID)
 	if err != nil {
-		return nil, errs.ServiceError("ExtendSession", err, "failed to get updated session")
+		return nil, fmt.Errorf("failed to get updated session: %w", err)
 	}
 
 	return updatedSession, nil
 }
 
-// UpdateSessionActivity updates the last activity time for a session
 func (s *GourdianSessionService) UpdateSessionActivity(ctx context.Context, sessionID uuid.UUID) error {
 	if sessionID == uuid.Nil {
-		return errs.ServiceError("UpdateSessionActivity", errs.ErrInvalidInput, "session ID cannot be empty")
+		return fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
 	}
 
-	err := s.repo.UpdateSessionActivity(ctx, sessionID)
-	if err != nil {
-		return errs.ServiceError("UpdateSessionActivity", err, "failed to update session activity")
+	if err := s.repo.UpdateSessionActivity(ctx, sessionID); err != nil {
+		return fmt.Errorf("failed to update session activity: %w", err)
 	}
 
 	return nil
 }
 
-// GetUserSessions retrieves all sessions for a user
 func (s *GourdianSessionService) GetUserSessions(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error) {
 	if userID == uuid.Nil {
-		return nil, errs.ServiceError("GetUserSessions", errs.ErrInvalidInput, "user ID cannot be empty")
+		return nil, fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
 	}
 
 	sessions, err := s.repo.GetSessionsByUserID(ctx, userID)
 	if err != nil {
-		return nil, errs.ServiceError("GetUserSessions", err, "failed to get user sessions")
+		return nil, fmt.Errorf("failed to get user sessions: %w", err)
 	}
 
 	return sessions, nil
 }
 
-// GetActiveUserSessions retrieves active sessions for a user
 func (s *GourdianSessionService) GetActiveUserSessions(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error) {
 	if userID == uuid.Nil {
-		return nil, errs.ServiceError("GetActiveUserSessions", errs.ErrInvalidInput, "user ID cannot be empty")
+		return nil, fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
 	}
 
 	sessions, err := s.repo.GetActiveSessionsByUserID(ctx, userID)
 	if err != nil {
-		return nil, errs.ServiceError("GetActiveUserSessions", err, "failed to get active user sessions")
+		return nil, fmt.Errorf("failed to get active user sessions: %w", err)
 	}
 
 	return sessions, nil
 }
 
-// RevokeAllUserSessions revokes all sessions for a user
 func (s *GourdianSessionService) RevokeAllUserSessions(ctx context.Context, userID uuid.UUID) error {
 	if userID == uuid.Nil {
-		return errs.ServiceError("RevokeAllUserSessions", errs.ErrInvalidInput, "user ID cannot be empty")
+		return fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
 	}
 
-	err := s.repo.RevokeUserSessions(ctx, userID)
-	if err != nil {
-		return errs.ServiceError("RevokeAllUserSessions", err, "failed to revoke user sessions")
+	if err := s.repo.RevokeUserSessions(ctx, userID); err != nil {
+		return fmt.Errorf("failed to revoke user sessions: %w", err)
 	}
 
 	return nil
 }
 
-// RevokeOtherUserSessions revokes all sessions for a user except the specified one
 func (s *GourdianSessionService) RevokeOtherUserSessions(ctx context.Context, userID, currentSessionID uuid.UUID) error {
 	if userID == uuid.Nil {
-		return errs.ServiceError("RevokeOtherUserSessions", errs.ErrInvalidInput, "user ID cannot be empty")
+		return fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
 	}
 	if currentSessionID == uuid.Nil {
-		return errs.ServiceError("RevokeOtherUserSessions", errs.ErrInvalidInput, "current session ID cannot be empty")
+		return fmt.Errorf("%w: current session ID cannot be empty", ErrInvalidInput)
 	}
 
-	err := s.repo.RevokeSessionsExcept(ctx, userID, currentSessionID)
-	if err != nil {
-		return errs.ServiceError("RevokeOtherUserSessions", err, "failed to revoke other user sessions")
+	if err := s.repo.RevokeSessionsExcept(ctx, userID, currentSessionID); err != nil {
+		return fmt.Errorf("failed to revoke other user sessions: %w", err)
 	}
 
 	return nil
 }
 
-// ValidateSession validates a session by ID
 func (s *GourdianSessionService) ValidateSession(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) {
 	if sessionID == uuid.Nil {
-		return nil, errs.ServiceError("ValidateSession", errs.ErrInvalidInput, "session ID cannot be empty")
+		return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
 	}
 
 	session, err := s.repo.ValidateSessionByID(ctx, sessionID)
 	if err != nil {
-		return nil, errs.ServiceError("ValidateSession", err, "session validation failed")
+		return nil, fmt.Errorf("session validation failed: %w", err)
 	}
 
-	// Check idle timeout
 	if s.config.IdleTimeoutDuration > 0 {
 		idleCutoff := time.Now().Add(-s.config.IdleTimeoutDuration)
 		if session.LastActivity.Before(idleCutoff) {
-			// Mark session as expired due to inactivity
 			session.Status = SessionStatusExpired
-			_, _ = s.repo.UpdateSession(ctx, session) // Best effort update
-			return nil, errs.ServiceError("ValidateSession", errs.ErrInvalidSession, "session expired due to inactivity")
+			_, _ = s.repo.UpdateSession(ctx, session)
+			return nil, fmt.Errorf("%w: session expired due to inactivity", ErrInvalidSession)
 		}
 	}
 
 	return session, nil
 }
 
-// ValidateSessionWithContext validates a session with additional IP and UserAgent checks
 func (s *GourdianSessionService) ValidateSessionWithContext(ctx context.Context, sessionID uuid.UUID, ipAddress, userAgent string) (*GourdianSessionType, error) {
 	if sessionID == uuid.Nil {
-		return nil, errs.ServiceError("ValidateSessionWithContext", errs.ErrInvalidInput, "session ID cannot be empty")
+		return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
 	}
 	if ipAddress == "" {
-		return nil, errs.ServiceError("ValidateSessionWithContext", errs.ErrInvalidInput, "IP address cannot be empty")
+		return nil, fmt.Errorf("%w: IP address cannot be empty", ErrInvalidInput)
 	}
 	if userAgent == "" {
-		return nil, errs.ServiceError("ValidateSessionWithContext", errs.ErrInvalidInput, "user agent cannot be empty")
+		return nil, fmt.Errorf("%w: user agent cannot be empty", ErrInvalidInput)
 	}
 
 	session, err := s.repo.ValidateSessionByIDIPUA(ctx, sessionID, ipAddress, userAgent)
 	if err != nil {
-		return nil, errs.ServiceError("ValidateSessionWithContext", err, "session validation failed")
+		return nil, fmt.Errorf("session validation failed: %w", err)
 	}
 
-	// Check idle timeout
 	if s.config.IdleTimeoutDuration > 0 {
 		idleCutoff := time.Now().Add(-s.config.IdleTimeoutDuration)
 		if session.LastActivity.Before(idleCutoff) {
-			// Mark session as expired due to inactivity
 			session.Status = SessionStatusExpired
-			_, _ = s.repo.UpdateSession(ctx, session) // Best effort update
-			return nil, errs.ServiceError("ValidateSessionWithContext", errs.ErrInvalidSession, "session expired due to inactivity")
+			_, _ = s.repo.UpdateSession(ctx, session)
+			return nil, fmt.Errorf("%w: session expired due to inactivity", ErrInvalidSession)
 		}
 	}
 
 	return session, nil
 }
 
-// SetSessionData stores data in the session
 func (s *GourdianSessionService) SetSessionData(ctx context.Context, sessionID uuid.UUID, key string, value interface{}) error {
 	if sessionID == uuid.Nil {
-		return errs.ServiceError("SetSessionData", errs.ErrInvalidInput, "session ID cannot be empty")
+		return fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
 	}
 	if key == "" {
-		return errs.ServiceError("SetSessionData", errs.ErrInvalidInput, "key cannot be empty")
+		return fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
 	}
 
-	// Validate session first
-	_, err := s.ValidateSession(ctx, sessionID)
-	if err != nil {
+	if _, err := s.ValidateSession(ctx, sessionID); err != nil {
 		return err
 	}
 
-	err = s.repo.SetSessionData(ctx, sessionID, key, value)
-	if err != nil {
-		return errs.ServiceError("SetSessionData", err, "failed to set session data")
+	if err := s.repo.SetSessionData(ctx, sessionID, key, value); err != nil {
+		return fmt.Errorf("failed to set session data: %w", err)
 	}
 
 	return nil
 }
 
-// GetSessionData retrieves data from the session
 func (s *GourdianSessionService) GetSessionData(ctx context.Context, sessionID uuid.UUID, key string) (interface{}, error) {
 	if sessionID == uuid.Nil {
-		return nil, errs.ServiceError("GetSessionData", errs.ErrInvalidInput, "session ID cannot be empty")
+		return nil, fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
 	}
 	if key == "" {
-		return nil, errs.ServiceError("GetSessionData", errs.ErrInvalidInput, "key cannot be empty")
+		return nil, fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
 	}
 
-	// Validate session first
-	_, err := s.ValidateSession(ctx, sessionID)
-	if err != nil {
+	if _, err := s.ValidateSession(ctx, sessionID); err != nil {
 		return nil, err
 	}
 
 	value, err := s.repo.GetSessionData(ctx, sessionID, key)
 	if err != nil {
-		return nil, errs.ServiceError("GetSessionData", err, "failed to get session data")
+		return nil, fmt.Errorf("failed to get session data: %w", err)
 	}
 
 	return value, nil
 }
 
-// DeleteSessionData removes data from the session
 func (s *GourdianSessionService) DeleteSessionData(ctx context.Context, sessionID uuid.UUID, key string) error {
 	if sessionID == uuid.Nil {
-		return errs.ServiceError("DeleteSessionData", errs.ErrInvalidInput, "session ID cannot be empty")
+		return fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
 	}
 	if key == "" {
-		return errs.ServiceError("DeleteSessionData", errs.ErrInvalidInput, "key cannot be empty")
+		return fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
 	}
 
-	// Validate session first
-	_, err := s.ValidateSession(ctx, sessionID)
-	if err != nil {
+	if _, err := s.ValidateSession(ctx, sessionID); err != nil {
 		return err
 	}
 
-	err = s.repo.DeleteSessionData(ctx, sessionID, key)
-	if err != nil {
-		return errs.ServiceError("DeleteSessionData", err, "failed to delete session data")
+	if err := s.repo.DeleteSessionData(ctx, sessionID, key); err != nil {
+		return fmt.Errorf("failed to delete session data: %w", err)
 	}
 
 	return nil
 }
 
-// SetTemporaryData stores temporary data with a TTL
 func (s *GourdianSessionService) SetTemporaryData(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
 	if key == "" {
-		return errs.ServiceError("SetTemporaryData", errs.ErrInvalidInput, "key cannot be empty")
+		return fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
 	}
 	if ttl <= 0 {
-		return errs.ServiceError("SetTemporaryData", errs.ErrInvalidInput, "TTL must be positive")
+		return fmt.Errorf("%w: TTL must be positive", ErrInvalidInput)
 	}
 
-	err := s.repo.SetTemporaryData(ctx, key, value, ttl)
-	if err != nil {
-		return errs.ServiceError("SetTemporaryData", err, "failed to set temporary data")
+	if err := s.repo.SetTemporaryData(ctx, key, value, ttl); err != nil {
+		return fmt.Errorf("failed to set temporary data: %w", err)
 	}
 
 	return nil
 }
 
-// GetTemporaryData retrieves temporary data
 func (s *GourdianSessionService) GetTemporaryData(ctx context.Context, key string) (interface{}, error) {
 	if key == "" {
-		return nil, errs.ServiceError("GetTemporaryData", errs.ErrInvalidInput, "key cannot be empty")
+		return nil, fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
 	}
 
 	value, err := s.repo.GetTemporaryData(ctx, key)
 	if err != nil {
-		return nil, errs.ServiceError("GetTemporaryData", err, "failed to get temporary data")
+		return nil, fmt.Errorf("failed to get temporary data: %w", err)
 	}
 
 	return value, nil
 }
 
-// DeleteTemporaryData removes temporary data
 func (s *GourdianSessionService) DeleteTemporaryData(ctx context.Context, key string) error {
 	if key == "" {
-		return errs.ServiceError("DeleteTemporaryData", errs.ErrInvalidInput, "key cannot be empty")
+		return fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
 	}
 
-	err := s.repo.DeleteTemporaryData(ctx, key)
-	if err != nil {
-		return errs.ServiceError("DeleteTemporaryData", err, "failed to delete temporary data")
+	if err := s.repo.DeleteTemporaryData(ctx, key); err != nil {
+		return fmt.Errorf("failed to delete temporary data: %w", err)
 	}
 
 	return nil
 }
 
-// CheckSessionQuota checks if the user has reached their session quota
 func (s *GourdianSessionService) CheckSessionQuota(ctx context.Context, userID uuid.UUID, ipAddress, userAgent *string) error {
 	if userID == uuid.Nil {
-		return errs.ServiceError("CheckSessionQuota", errs.ErrInvalidInput, "user ID cannot be empty")
+		return fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
 	}
 
-	// Check max sessions per user
 	if s.config.MaxUserSessions > 0 {
 		activeSessions, err := s.GetActiveUserSessions(ctx, userID)
 		if err != nil {
-			return errs.ServiceError("CheckSessionQuota", err, "failed to check active sessions")
+			return fmt.Errorf("failed to check active sessions: %w", err)
 		}
 
 		if len(activeSessions) >= s.config.MaxUserSessions {
-			return errs.ServiceError("CheckSessionQuota", errs.ErrForbidden, "maximum number of sessions reached for user")
+			return fmt.Errorf("%w: maximum number of sessions reached for user", ErrForbidden)
 		}
 	}
 
-	// Check max sessions per device (if tracking devices)
 	if s.config.TrackClientDevices && s.config.MaxSessionsPerDevice > 0 && userAgent != nil {
-		// Get all active sessions for this user agent
 		allSessions, err := s.GetActiveUserSessions(ctx, userID)
 		if err != nil {
-			return errs.ServiceError("CheckSessionQuota", err, "failed to check device sessions")
+			return fmt.Errorf("failed to check device sessions: %w", err)
 		}
 
 		deviceSessions := 0
@@ -987,16 +1173,14 @@ func (s *GourdianSessionService) CheckSessionQuota(ctx context.Context, userID u
 		}
 
 		if deviceSessions >= s.config.MaxSessionsPerDevice {
-			return errs.ServiceError("CheckSessionQuota", errs.ErrForbidden, "maximum number of sessions reached for this device")
+			return fmt.Errorf("%w: maximum number of sessions reached for this device", ErrForbidden)
 		}
 	}
 
-	// Check max IP connections (if tracking IPs)
 	if s.config.TrackIPAddresses && s.config.MaxIPConnections > 0 && ipAddress != nil {
-		// Get all active sessions for this IP
 		allSessions, err := s.repo.GetActiveSessionsByUserID(ctx, userID)
 		if err != nil {
-			return errs.ServiceError("CheckSessionQuota", err, "failed to check IP sessions")
+			return fmt.Errorf("failed to check IP sessions: %w", err)
 		}
 
 		ipSessions := 0
@@ -1007,36 +1191,32 @@ func (s *GourdianSessionService) CheckSessionQuota(ctx context.Context, userID u
 		}
 
 		if ipSessions >= s.config.MaxIPConnections {
-			return errs.ServiceError("CheckSessionQuota", errs.ErrForbidden, "maximum number of connections reached from this IP")
+			return fmt.Errorf("%w: maximum number of connections reached from this IP", ErrForbidden)
 		}
 	}
 
 	return nil
 }
 
-// EnforceSessionLimits enforces all session limits
 func (s *GourdianSessionService) EnforceSessionLimits(ctx context.Context, userID uuid.UUID, ipAddress, userAgent *string) error {
 	if userID == uuid.Nil {
-		return errs.ServiceError("EnforceSessionLimits", errs.ErrInvalidInput, "user ID cannot be empty")
+		return fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
 	}
 
-	// Check all quotas
 	if err := s.CheckSessionQuota(ctx, userID, ipAddress, userAgent); err != nil {
 		return err
 	}
 
-	// Enforce concurrent sessions policy
 	if !s.config.AllowConcurrentSessions {
-		err := s.RevokeOtherUserSessions(ctx, userID, uuid.Nil)
-		if err != nil {
-			return errs.ServiceError("EnforceSessionLimits", err, "failed to enforce single session policy")
+		// When creating a new session, we want to revoke ALL existing sessions
+		if err := s.repo.RevokeUserSessions(ctx, userID); err != nil {
+			return fmt.Errorf("failed to enforce single session policy: %w", err)
 		}
 	}
 
 	return nil
 }
 
-// isUserAgentBlocked checks if the user agent is in the blocked list
 func (s *GourdianSessionService) isUserAgentBlocked(userAgent string) bool {
 	if len(s.config.BlockedUserAgents) == 0 {
 		return false
@@ -1052,11 +1232,21 @@ func (s *GourdianSessionService) isUserAgentBlocked(userAgent string) bool {
 	return false
 }
 
-// NewGourdianSession creates a new session service with Redis backend
-func NewGourdianSession(redisClient *redis.Client, config *GourdianSessionConfig) GourdianSessionServiceInt {
-	// Create the Redis repository
-	redisRepo := NewGurdianRedisSessionRepository(redisClient)
-
-	// Create and return the session service
+func NewRedisGourdiansession(
+	config *GourdianSessionConfig,
+	redisClient *redis.Client,
+) GourdianSessionServiceInt {
+	redisRepo := NewGurdianSessionRedisRepository(redisClient)
 	return NewGourdianSessionService(redisRepo, config)
+}
+
+func NewMongoGourdiansession(
+	config *GourdianSessionConfig,
+	mongoClient *mongo.Client,
+	enableTransactions bool,
+	dbName string,
+) GourdianSessionServiceInt {
+	db := mongoClient.Database(dbName)
+	mongoRepo := NewGourdianSessionMongoRepository(db, enableTransactions)
+	return NewGourdianSessionService(mongoRepo, config)
 }
