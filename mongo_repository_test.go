@@ -10,28 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 )
-
-func setupTestMongoDB(t *testing.T) *mongo.Database {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://root:GourdianMongoSecret@localhost:27017/GourdianMongoDB?authSource=admin"))
-	require.NoError(t, err)
-
-	db := client.Database("test_gourdian_sessions")
-	return db
-}
-
-func cleanupTestMongoDB(t *testing.T, db *mongo.Database) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err := db.Drop(ctx)
-	require.NoError(t, err)
-}
 
 func TestMongoRepository_RevokeUserSessions(t *testing.T) {
 	db := setupTestMongoDB(t)
@@ -330,59 +309,59 @@ func TestMongoRepository_SessionDataOperations(t *testing.T) {
 	})
 }
 
-// func TestMongoRepository_CreateSession(t *testing.T) {
-// 	db := setupTestMongoDB(t)
-// 	defer cleanupTestMongoDB(t, db)
+func TestMongoRepository_CreateSession(t *testing.T) {
+	db := setupTestMongoDB(t)
+	defer cleanupTestMongoDB(t, db)
 
-// 	repo := NewGourdianSessionMongoRepository(db, false)
-// 	ctx := context.Background()
+	repo := NewGourdianSessionMongoRepository(db, false)
+	ctx := context.Background()
 
-// 	t.Run("successful creation", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			strPtr("192.168.1.1"),
-// 			strPtr("test-agent"),
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
+	t.Run("successful creation", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			strPtr("192.168.1.1"),
+			strPtr("test-agent"),
+			[]Role{},
+			30*time.Minute,
+		)
 
-// 		created, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
-// 		assert.Equal(t, session.UUID, created.UUID)
-// 		assert.Equal(t, SessionStatusActive, created.Status)
+		created, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
+		assert.Equal(t, session.UUID, created.UUID)
+		assert.Equal(t, SessionStatusActive, created.Status)
 
-// 		// Verify MongoDB has the session
-// 		stored, err := repo.GetSessionByID(ctx, session.UUID)
-// 		require.NoError(t, err)
-// 		assert.Equal(t, session.UUID, stored.UUID)
-// 	})
+		// Verify MongoDB has the session
+		stored, err := repo.GetSessionByID(ctx, session.UUID)
+		require.NoError(t, err)
+		assert.Equal(t, session.UUID, stored.UUID)
+	})
 
-// 	t.Run("nil session", func(t *testing.T) {
-// 		_, err := repo.CreateSession(ctx, nil)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session cannot be nil")
-// 	})
+	t.Run("nil session", func(t *testing.T) {
+		_, err := repo.CreateSession(ctx, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session cannot be nil")
+	})
 
-// 	t.Run("duplicate session ID", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
+	t.Run("duplicate session ID", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
 
-// 		// Try to create again with same UUID
-// 		_, err = repo.CreateSession(ctx, session)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session with this UUID already exists")
-// 	})
-// }
+		// Try to create again with same UUID
+		_, err = repo.CreateSession(ctx, session)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session with this UUID already exists")
+	})
+}
 
 // func TestMongoRepository_GetSessionByID(t *testing.T) {
 // 	db := setupTestMongoDB(t)

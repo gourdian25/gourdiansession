@@ -2,4 +2,4 @@
 
 package gourdiansession
 
-var Version = "v1.0.1"
+var Version = "v0.0.1"
