@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (58.0%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (58.4%)</option>
 				
 				<option value="file1">github.com/gourdian25/gourdiansession/gourdiansessionRedisRepositoryImp.go (79.5%)</option>
 				
@@ -122,7 +122,7 @@ type Permission struct {
 type GourdianSessionType struct {
         ID            int64           `json:"id" bson:"id" gorm:"type:bigint;autoIncrement;uniqueIndex"`
         UUID          uuid.UUID       `json:"uuid" bson:"uuid" gorm:"type:uuid;not null;uniqueIndex"`
-        UserID        uuid.UUID       `gorm:"type:uuid;not null;index:user_id;index:user_status"`
+        UserID        uuid.UUID       `json:"user_id" bson:"user_id" gorm:"type:uuid;not null;index:user_id;index:user_status"`
         Authenticated bool            `json:"authenticated" bson:"authenticated"`
         Username      string          `json:"username" bson:"username"`
         Status        string          `json:"status" bson:"status" gorm:"type:varchar(16);index;index:user_status;index:status_expires"`
@@ -147,6 +147,7 @@ func NewGurdianSessionObject(
         now := time.Now()
 
         return &amp;GourdianSessionType{
+                ID:            0,
                 UUID:          uuid.New(),
                 UserID:        userID,
                 Authenticated: true,
@@ -310,13 +311,12 @@ func (r *GourdianSessionMongoRepository) RevokeSessionByID(ctx context.Context, 
 }
 
 func (r *GourdianSessionMongoRepository) GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) <span class="cov8" title="1">{
-        // Read operation doesn't need transaction
         filter := bson.M{"uuid": sessionID}
 
         var session GourdianSessionType
         err := r.sessionsCollection.FindOne(ctx, filter).Decode(&amp;session)
-        if err != nil </span><span class="cov0" title="0">{
-                if err == mongo.ErrNoDocuments </span><span class="cov0" title="0">{
+        if err != nil </span><span class="cov8" title="1">{
+                if err == mongo.ErrNoDocuments </span><span class="cov8" title="1">{
                         return nil, fmt.Errorf("%w: session not found", ErrNotFound)
                 }</span>
                 <span class="cov0" title="0">return nil, fmt.Errorf("failed to get session: %w", err)</span>
@@ -334,7 +334,7 @@ func (r *GourdianSessionMongoRepository) GetSessionByID(ctx context.Context, ses
 
         // Check if session is expired
         <span class="cov8" title="1">if session.ExpiresAt.Before(time.Now()) </span><span class="cov0" title="0">{
-                // Update session status to expired
+                // Update session status to expired using the UUID
                 update := bson.M{
                         "$set": bson.M{
                                 "status":    SessionStatusExpired,
@@ -342,9 +342,9 @@ func (r *GourdianSessionMongoRepository) GetSessionByID(ctx context.Context, ses
                         },
                 }
 
-                _, updateErr := r.sessionsCollection.UpdateByID(
+                _, updateErr := r.sessionsCollection.UpdateOne(
                         ctx,
-                        session.ID,
+                        bson.M{"uuid": sessionID},
                         update,
                 )
                 if updateErr != nil </span><span class="cov0" title="0">{

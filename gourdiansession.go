@@ -49,7 +49,7 @@ type Permission struct {
 type GourdianSessionType struct {
 	ID            int64           `json:"id" bson:"id" gorm:"type:bigint;autoIncrement;uniqueIndex"`
 	UUID          uuid.UUID       `json:"uuid" bson:"uuid" gorm:"type:uuid;not null;uniqueIndex"`
-	UserID        uuid.UUID       `gorm:"type:uuid;not null;index:user_id;index:user_status"`
+	UserID        uuid.UUID       `json:"user_id" bson:"user_id" gorm:"type:uuid;not null;index:user_id;index:user_status"`
 	Authenticated bool            `json:"authenticated" bson:"authenticated"`
 	Username      string          `json:"username" bson:"username"`
 	Status        string          `json:"status" bson:"status" gorm:"type:varchar(16);index;index:user_status;index:status_expires"`
@@ -74,6 +74,7 @@ func NewGurdianSessionObject(
 	now := time.Now()
 
 	return &GourdianSessionType{
+		ID:            0,
 		UUID:          uuid.New(),
 		UserID:        userID,
 		Authenticated: true,
@@ -237,7 +238,6 @@ func (r *GourdianSessionMongoRepository) RevokeSessionByID(ctx context.Context, 
 }
 
 func (r *GourdianSessionMongoRepository) GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) {
-	// Read operation doesn't need transaction
 	filter := bson.M{"uuid": sessionID}
 
 	var session GourdianSessionType
@@ -261,7 +261,7 @@ func (r *GourdianSessionMongoRepository) GetSessionByID(ctx context.Context, ses
 
 	// Check if session is expired
 	if session.ExpiresAt.Before(time.Now()) {
-		// Update session status to expired
+		// Update session status to expired using the UUID
 		update := bson.M{
 			"$set": bson.M{
 				"status":    SessionStatusExpired,
@@ -269,9 +269,9 @@ func (r *GourdianSessionMongoRepository) GetSessionByID(ctx context.Context, ses
 			},
 		}
 
-		_, updateErr := r.sessionsCollection.UpdateByID(
+		_, updateErr := r.sessionsCollection.UpdateOne(
 			ctx,
-			session.ID,
+			bson.M{"uuid": sessionID},
 			update,
 		)
 		if updateErr != nil {
