@@ -1,3 +1,5 @@
+// File: gourdiansession_test.go
+
 // gourdiansession_test.go
 package gourdiansession
 
@@ -9,6 +11,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func setupTestRedis() *redis.Client {
@@ -21,6 +25,25 @@ func setupTestRedis() *redis.Client {
 
 func cleanupTestRedis(t *testing.T, client *redis.Client) {
 	err := client.FlushDB(context.Background()).Err()
+	require.NoError(t, err)
+}
+
+func setupTestMongoDB(t *testing.T) *mongo.Database {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://root:GourdianMongoSecret@localhost:27017/GourdianMongoDB?authSource=admin"))
+	require.NoError(t, err)
+
+	db := client.Database("test_gourdian_sessions")
+	return db
+}
+
+func cleanupTestMongoDB(t *testing.T, db *mongo.Database) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := db.Drop(ctx)
 	require.NoError(t, err)
 }
 
