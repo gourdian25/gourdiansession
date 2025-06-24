@@ -1,5 +1,3 @@
-<!-- File: coverage.html -->
-
 
 <!DOCTYPE html>
 <html>
@@ -57,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (58.0%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (58.7%)</option>
 				
 				<option value="file1">github.com/gourdian25/gourdiansession/gourdiansessionRedisRepositoryImp.go (79.5%)</option>
 				
@@ -238,7 +236,7 @@ func (r *GourdianSessionMongoRepository) withTransaction(ctx context.Context, fn
 }
 
 func (r *GourdianSessionMongoRepository) CreateSession(ctx context.Context, session *GourdianSessionType) (*GourdianSessionType, error) <span class="cov8" title="1">{
-        if session == nil </span><span class="cov0" title="0">{
+        if session == nil </span><span class="cov8" title="1">{
                 return nil, fmt.Errorf("%w: session cannot be nil", ErrInvalidInput)
         }</span>
 
@@ -251,7 +249,7 @@ func (r *GourdianSessionMongoRepository) CreateSession(ctx context.Context, sess
                 if err != nil </span><span class="cov0" title="0">{
                         return fmt.Errorf("failed to check session existence: %w", err)
                 }</span>
-                <span class="cov8" title="1">if count &gt; 0 </span><span class="cov0" title="0">{
+                <span class="cov8" title="1">if count &gt; 0 </span><span class="cov8" title="1">{
                         return fmt.Errorf("%w: session already exists", ErrConflict)
                 }</span>
 
@@ -272,7 +270,7 @@ func (r *GourdianSessionMongoRepository) CreateSession(ctx context.Context, sess
                 return err</span>
         })
 
-        <span class="cov8" title="1">if err != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if err != nil </span><span class="cov8" title="1">{
                 return nil, err
         }</span>
 

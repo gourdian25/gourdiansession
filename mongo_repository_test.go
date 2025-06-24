@@ -359,59 +359,59 @@ func TestMongoRepository_CreateSession(t *testing.T) {
 		// Try to create again with same UUID
 		_, err = repo.CreateSession(ctx, session)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "session with this UUID already exists")
+		assert.Contains(t, err.Error(), "session already exists") // Updated to match actual error message
 	})
 }
 
-// func TestMongoRepository_GetSessionByID(t *testing.T) {
-// 	db := setupTestMongoDB(t)
-// 	defer cleanupTestMongoDB(t, db)
+func TestMongoRepository_GetSessionByID(t *testing.T) {
+	db := setupTestMongoDB(t)
+	defer cleanupTestMongoDB(t, db)
 
-// 	repo := NewGourdianSessionMongoRepository(db, false)
-// 	ctx := context.Background()
+	repo := NewGourdianSessionMongoRepository(db, false)
+	ctx := context.Background()
 
-// 	t.Run("existing session", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
+	t.Run("existing session", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
 
-// 		retrieved, err := repo.GetSessionByID(ctx, session.UUID)
-// 		require.NoError(t, err)
-// 		assert.Equal(t, session.UUID, retrieved.UUID)
-// 	})
+		retrieved, err := repo.GetSessionByID(ctx, session.UUID)
+		require.NoError(t, err)
+		assert.Equal(t, session.UUID, retrieved.UUID)
+	})
 
-// 	t.Run("non-existent session", func(t *testing.T) {
-// 		_, err := repo.GetSessionByID(ctx, uuid.New())
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session not found")
-// 	})
+	t.Run("non-existent session", func(t *testing.T) {
+		_, err := repo.GetSessionByID(ctx, uuid.New())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session not found")
+	})
 
-// 	t.Run("expired session", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			-1*time.Minute, // Already expired
-// 		)
+	t.Run("expired session", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			-1*time.Minute, // Already expired
+		)
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
 
-// 		_, err = repo.GetSessionByID(ctx, session.UUID)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session has expired")
-// 	})
-// }
+		_, err = repo.GetSessionByID(ctx, session.UUID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session has expired")
+	})
+}
 
 // func TestMongoRepository_UpdateSession(t *testing.T) {
 // 	db := setupTestMongoDB(t)
