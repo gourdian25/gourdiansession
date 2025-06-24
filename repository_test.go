@@ -15,7 +15,7 @@ func TestRedisRepository_DeleteSession(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	t.Run("successful deletion", func(t *testing.T) {
@@ -49,7 +49,7 @@ func TestRedisRepository_SessionDataOperations(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	session := NewGurdianSessionObject(
@@ -95,7 +95,7 @@ func TestRedisRepository_CreateSession(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	t.Run("successful creation", func(t *testing.T) {
@@ -149,7 +149,7 @@ func TestRedisRepository_GetSessionByID(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	t.Run("existing session", func(t *testing.T) {
@@ -200,7 +200,7 @@ func TestRedisRepository_UpdateSession(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	t.Run("successful update", func(t *testing.T) {
@@ -247,7 +247,7 @@ func TestRedisRepository_ValidateSession(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	t.Run("valid session", func(t *testing.T) {
@@ -317,7 +317,7 @@ func TestRedisRepository_RevokeUserSessions(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	userID := uuid.New()
@@ -379,7 +379,7 @@ func TestRedisRepository_RevokeSessionsExcept(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	userID := uuid.New()
@@ -464,7 +464,7 @@ func TestRedisRepository_UpdateSessionActivity(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	t.Run("update activity", func(t *testing.T) {
@@ -503,7 +503,7 @@ func TestRedisRepository_ValidateSessionByIDIPUA(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	t.Run("successful validation with IP/UA", func(t *testing.T) {
@@ -590,7 +590,7 @@ func TestRedisRepository_TemporaryDataOperations(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	t.Run("set and get temporary data", func(t *testing.T) {
@@ -642,7 +642,7 @@ func TestRedisRepository_ExtendSession(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	t.Run("successful extension", func(t *testing.T) {
@@ -701,7 +701,7 @@ func TestRedisRepository_RevokeSessionByID(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	t.Run("successful revocation", func(t *testing.T) {
@@ -788,7 +788,7 @@ func TestRedisRepository_GetSessionsByUserID(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	userID := uuid.New()
@@ -851,7 +851,7 @@ func TestRedisRepository_ConcurrentSessionOperations(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	userID := uuid.New()
@@ -928,7 +928,7 @@ func TestRedisRepository_NilInputHandling(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	t.Run("nil IP and UA", func(t *testing.T) {
@@ -973,7 +973,7 @@ func TestRedisRepository_UserSessionTracking(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	user1 := uuid.New()
@@ -1032,7 +1032,7 @@ func TestRedisRepository_GetSessionsByUserID_EdgeCases(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	t.Run("handle invalid session IDs in set", func(t *testing.T) {

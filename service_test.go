@@ -16,7 +16,7 @@ func TestSessionService_SessionDataOperations(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	svc := NewGourdianSessionService(repo, testConfig())
 	ctx := context.Background()
 
@@ -53,7 +53,7 @@ func TestSessionService_TemporaryDataOperations(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	svc := NewGourdianSessionService(repo, testConfig())
 	ctx := context.Background()
 
@@ -103,7 +103,7 @@ func TestSessionService_CreateSession(t *testing.T) {
 		BlockedUserAgents:       []string{"badbot"},
 	}
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	svc := NewGourdianSessionService(repo, testCfg)
 	ctx := context.Background()
 
@@ -155,7 +155,7 @@ func TestSessionService_ValidateSession(t *testing.T) {
 	defer cleanupTestRedis(t, client)
 
 	testCfg := testConfig()
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	svc := NewGourdianSessionService(repo, testCfg)
 	ctx := context.Background()
 
@@ -212,7 +212,7 @@ func TestSessionService_RefreshSession(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	t.Run("refresh within renewal window", func(t *testing.T) {
@@ -279,7 +279,7 @@ func TestSessionService_RevokeOperations(t *testing.T) {
 	testCfg.MaxSessionsPerDevice = 10 // Increase device limit for testing
 	testCfg.MaxUserSessions = 10      // Increase user limit for testing
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	svc := NewGourdianSessionService(repo, testCfg)
 	ctx := context.Background()
 
@@ -350,7 +350,7 @@ func TestNewGourdianSession(t *testing.T) {
 	defer cleanupTestRedis(t, client)
 
 	config := testConfig()
-	service := NewGourdianSession(client, config)
+	service := NewGourdianRedisSession(client, config)
 
 	assert.NotNil(t, service)
 }
@@ -359,7 +359,7 @@ func TestSessionService_GetSession(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	svc := NewGourdianSessionService(repo, testConfig())
 	ctx := context.Background()
 
@@ -388,7 +388,7 @@ func TestSessionService_UpdateSessionActivity(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	svc := NewGourdianSessionService(repo, testConfig())
 	ctx := context.Background()
 
@@ -416,7 +416,7 @@ func TestSessionService_ExtendSession(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	svc := NewGourdianSessionService(repo, testConfig())
 	ctx := context.Background()
 
@@ -451,7 +451,7 @@ func TestSessionService_ValidateSessionWithContext(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	svc := NewGourdianSessionService(repo, testConfig())
 	ctx := context.Background()
 
@@ -505,7 +505,7 @@ func TestSessionService_GetUserSessions(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	svc := NewGourdianSessionService(repo, testConfig())
 	ctx := context.Background()
 
@@ -565,7 +565,7 @@ func TestSessionService_EnforceSessionLimits(t *testing.T) {
 		DefaultSessionDuration:  30 * time.Minute,
 	}
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	svc := NewGourdianSessionService(repo, singleSessionConfig)
 	ctx := context.Background()
 

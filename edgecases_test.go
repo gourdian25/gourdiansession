@@ -18,7 +18,7 @@ func TestEdgeCases(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	svc := NewGourdianSessionService(repo, testConfig())
 	ctx := context.Background()
 
@@ -82,7 +82,7 @@ func TestSessionService_ErrorHandling(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	svc := NewGourdianSessionService(repo, testConfig())
 	ctx := context.Background()
 
@@ -127,7 +127,7 @@ func TestSessionService_ConfigurationEdgeCases(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	t.Run("zero max sessions", func(t *testing.T) {
@@ -194,7 +194,7 @@ func TestRedisRepository_ValidateSessionByID_EdgeCases(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	ctx := context.Background()
 
 	t.Run("expired session marking", func(t *testing.T) {
@@ -249,7 +249,7 @@ func TestSessionService_EdgeCases(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	svc := NewGourdianSessionService(repo, testConfig())
 	ctx := context.Background()
 
@@ -321,7 +321,7 @@ func TestSessionService_ConcurrencyEdgeCases(t *testing.T) {
 	client := setupTestRedis()
 	defer cleanupTestRedis(t, client)
 
-	repo := NewGurdianRedisSessionRepository(client)
+	repo := NewGurdianSessionRedisRepository(client)
 	svc := NewGourdianSessionService(repo, testConfig())
 	ctx := context.Background()
 
