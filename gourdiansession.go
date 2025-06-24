@@ -29,19 +29,6 @@ var (
 	ErrInvalidSession = errors.New("invalid session")
 )
 
-// Role represents a role with its permissions in the session
-type Role struct {
-	Name        string       `json:"name" bson:"name"`
-	Permissions []Permission `json:"permissions" bson:"permissions"`
-}
-
-// Permission represents a simplified permission in the session
-type Permission struct {
-	Name     string `json:"name" bson:"name"`
-	Resource string `json:"resource" bson:"resource"`
-	Action   string `json:"action" bson:"action"`
-}
-
 // GourdianSessionType holds session information
 type GourdianSessionType struct {
 	ID            int64           `json:"id" bson:"id" gorm:"type:bigint;autoIncrement;uniqueIndex"`
@@ -52,7 +39,7 @@ type GourdianSessionType struct {
 	Status        string          `json:"status" bson:"status" gorm:"type:varchar(16);index;index:user_status;index:status_expires"`
 	IPAddress     *string         `json:"ip_address" bson:"ip_address"`
 	UserAgent     *string         `json:"user_agent" bson:"user_agent"`
-	Roles         []Role          `json:"roles" bson:"roles" gorm:"type:jsonb"`
+	Roles         []string        `json:"roles" bson:"roles" gorm:"type:jsonb"` // Changed from []Role to []string
 	ExpiresAt     time.Time       `json:"expires_at" bson:"expires_at" gorm:"index:status_expires"`
 	CreatedAt     time.Time       `json:"created_at" bson:"created_at"`
 	LastActivity  time.Time       `json:"last_activity" bson:"last_activity"`
@@ -65,7 +52,7 @@ func NewGurdianSessionObject(
 	userID uuid.UUID,
 	username string,
 	ipAddress, userAgent *string,
-	roles []Role,
+	roles []string, // Changed from []Role to []string
 	sessionDuration time.Duration,
 ) *GourdianSessionType {
 	now := time.Now()
@@ -720,7 +707,7 @@ type GourdianSessionConfig struct {
 }
 
 type GourdianSessionServiceInt interface {
-	CreateSession(ctx context.Context, userID uuid.UUID, username string, ipAddress, userAgent *string, roles []Role) (*GourdianSessionType, error)
+	CreateSession(ctx context.Context, userID uuid.UUID, username string, ipAddress, userAgent *string, roles []string) (*GourdianSessionType, error)
 
 	RevokeSession(ctx context.Context, sessionID uuid.UUID) error
 
@@ -773,7 +760,7 @@ func NewGourdianSessionService(repo GurdianSessionRepositoryInt, config *Gourdia
 	}
 }
 
-func (s *GourdianSessionService) CreateSession(ctx context.Context, userID uuid.UUID, username string, ipAddress, userAgent *string, roles []Role) (*GourdianSessionType, error) {
+func (s *GourdianSessionService) CreateSession(ctx context.Context, userID uuid.UUID, username string, ipAddress, userAgent *string, roles []string) (*GourdianSessionType, error) {
 	if userID == uuid.Nil {
 		return nil, fmt.Errorf("%w: user ID cannot be empty", ErrInvalidInput)
 	}

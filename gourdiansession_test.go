@@ -73,18 +73,7 @@ func createTestSession(t *testing.T, svc GourdianSessionServiceInt) (*GourdianSe
 	username := "testuser"
 	ip := "192.168.1.1"
 	ua := "test-agent"
-	roles := []Role{
-		{
-			Name: "user",
-			Permissions: []Permission{
-				{
-					Name:     "read",
-					Resource: "profile",
-					Action:   "read",
-				},
-			},
-		},
-	}
+	roles := []string{"user", "editor"}
 
 	session, err := svc.CreateSession(context.Background(), userID, username, &ip, &ua, roles)
 	require.NoError(t, err)

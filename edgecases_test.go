@@ -26,7 +26,7 @@ func TestEdgeCases(t *testing.T) {
 	t.Run("session with nil IP and UA", func(t *testing.T) {
 		userID := uuid.New()
 		username := "testuser"
-		roles := []Role{}
+		roles := []string{"admin"} // Changed from []Role{}
 
 		session, err := svc.CreateSession(ctx, userID, username, nil, nil, roles)
 		require.NoError(t, err)
@@ -54,7 +54,7 @@ func TestEdgeCases(t *testing.T) {
 		ip := "192.168.1.1"
 		ua := "test-agent"
 
-		session, err := svc.CreateSession(ctx, userID, username, &ip, &ua, nil)
+		session, err := svc.CreateSession(ctx, userID, username, &ip, &ua, []string{}) // Changed from nil to []string{}
 		require.NoError(t, err)
 		assert.Equal(t, 0, len(session.Roles))
 	})
@@ -138,7 +138,7 @@ func TestSessionService_ConfigurationEdgeCases(t *testing.T) {
 
 		userID := uuid.New()
 		for i := 0; i < 10; i++ { // Create many sessions
-			_, err := svc.CreateSession(ctx, userID, "testuser", nil, nil, []Role{})
+			_, err := svc.CreateSession(ctx, userID, "testuser", nil, nil, []string{"user"})
 			require.NoError(t, err)
 		}
 
@@ -157,7 +157,7 @@ func TestSessionService_ConfigurationEdgeCases(t *testing.T) {
 
 		// Create multiple sessions with same IP (shouldn't trigger limit)
 		for i := 0; i < 5; i++ {
-			_, err := svc.CreateSession(ctx, userID, "testuser", &ip, nil, []Role{})
+			_, err := svc.CreateSession(ctx, userID, "testuser", &ip, nil, []string{"user"})
 			require.NoError(t, err)
 		}
 	})
@@ -172,7 +172,7 @@ func TestSessionService_ConfigurationEdgeCases(t *testing.T) {
 
 		// Create multiple sessions with same UA (shouldn't trigger limit)
 		for i := 0; i < 5; i++ {
-			_, err := svc.CreateSession(ctx, userID, "testuser", nil, &ua, []Role{})
+			_, err := svc.CreateSession(ctx, userID, "testuser", nil, &ua, []string{"user"})
 			require.NoError(t, err)
 		}
 	})
@@ -204,7 +204,7 @@ func TestRedisRepository_ValidateSessionByID_EdgeCases(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{"user"}, // Changed from []Role{}
 			1*time.Millisecond,
 		)
 
@@ -232,7 +232,7 @@ func TestRedisRepository_ValidateSessionByID_EdgeCases(t *testing.T) {
 			"testuser",
 			nil,
 			nil,
-			[]Role{},
+			[]string{},
 			0,
 		)
 
@@ -258,8 +258,8 @@ func TestSessionService_EdgeCases(t *testing.T) {
 		userID := uuid.New()
 		username := "testuser"
 		ip := "192.168.1.1"
-		ua := "badbot-scraper" // Contains "badbot" which is in blocked list
-		roles := []Role{}
+		ua := "badbot-scraper"
+		roles := []string{"guest"} // Changed from []Role{}
 
 		_, err := svc.CreateSession(ctx, userID, username, &ip, &ua, roles)
 		require.Error(t, err)
@@ -269,7 +269,6 @@ func TestSessionService_EdgeCases(t *testing.T) {
 	t.Run("session quota with nil IP and UA", func(t *testing.T) {
 		userID := uuid.New()
 
-		// Should work when not tracking IP/UA
 		cfg := testConfig()
 		cfg.TrackIPAddresses = false
 		cfg.TrackClientDevices = false
