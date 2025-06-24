@@ -250,35 +250,36 @@ func (r *GourdianSessionMongoRepository) GetSessionByID(ctx context.Context, ses
 	}
 
 	// Check if session is deleted
-	if session.DeletedAt != nil {
+	if session.DeletedAt != nil && !session.DeletedAt.IsZero() {
 		return nil, fmt.Errorf("%w: session has been deleted", ErrNotFound)
-	}
-
-	// Check session status
-	if session.Status != SessionStatusActive {
-		return nil, fmt.Errorf("%w: session is not active", ErrInvalidSession)
 	}
 
 	// Check if session is expired
 	if session.ExpiresAt.Before(time.Now()) {
-		// Update session status to expired using the UUID
-		update := bson.M{
-			"$set": bson.M{
-				"status":    SessionStatusExpired,
-				"updatedAt": time.Now(),
-			},
-		}
+		// Update session status to expired if it's not already
+		if session.Status != SessionStatusExpired {
+			update := bson.M{
+				"$set": bson.M{
+					"status":    SessionStatusExpired,
+					"updatedAt": time.Now(),
+				},
+			}
 
-		_, updateErr := r.sessionsCollection.UpdateOne(
-			ctx,
-			bson.M{"uuid": sessionID},
-			update,
-		)
-		if updateErr != nil {
-			log.Printf("failed to mark session as expired: %v", updateErr)
+			_, updateErr := r.sessionsCollection.UpdateOne(
+				ctx,
+				filter,
+				update,
+			)
+			if updateErr != nil {
+				log.Printf("failed to mark session as expired: %v", updateErr)
+			}
 		}
-
 		return nil, fmt.Errorf("%w: session has expired", ErrInvalidSession)
+	}
+
+	// Check session status (after expiration check)
+	if session.Status != SessionStatusActive {
+		return nil, fmt.Errorf("%w: session is not active", ErrInvalidSession)
 	}
 
 	return &session, nil

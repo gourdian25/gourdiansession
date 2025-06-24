@@ -397,33 +397,6 @@ func TestMongoRepository_GetSessionByID(t *testing.T) {
 		assert.Contains(t, err.Error(), "session not found")
 	})
 
-	// t.Run("expired session validation on retrieval", func(t *testing.T) {
-	// 	// Create a session that will immediately expire
-	// 	session := NewGurdianSessionObject(
-	// 		uuid.New(),
-	// 		"testuser",
-	// 		nil,
-	// 		nil,
-	// 		[]Role{},
-	// 		-1*time.Minute, // Already expired
-	// 	)
-
-	// 	// Creation should succeed (expiration is checked on retrieval)
-	// 	created, err := repo.CreateSession(ctx, session)
-	// 	require.NoError(t, err)
-
-	// 	// First retrieval should fail with expired error
-	// 	_, err = repo.GetSessionByID(ctx, created.UUID)
-	// 	require.Error(t, err)
-	// 	assert.True(t, errors.Is(err, ErrInvalidSession), "should detect expired session on retrieval")
-	// 	assert.Contains(t, err.Error(), "session has expired")
-
-	// 	// Second retrieval should also fail with inactive session error
-	// 	_, err = repo.GetSessionByID(ctx, created.UUID)
-	// 	require.Error(t, err)
-	// 	assert.Contains(t, err.Error(), "session is not active")
-	// })
-
 	// t.Run("revoked session", func(t *testing.T) {
 	// 	session := NewGurdianSessionObject(
 	// 		uuid.New(),
@@ -472,6 +445,33 @@ func TestMongoRepository_GetSessionByID(t *testing.T) {
 	// 	require.Error(t, err)
 	// 	assert.True(t, errors.Is(err, ErrNotFound))
 	// 	assert.Contains(t, err.Error(), "session has been deleted")
+	// })
+
+	// t.Run("expired session validation on retrieval", func(t *testing.T) {
+	// 	// Create a session that will immediately expire
+	// 	session := NewGurdianSessionObject(
+	// 		uuid.New(),
+	// 		"testuser",
+	// 		nil,
+	// 		nil,
+	// 		[]Role{},
+	// 		-1*time.Minute, // Already expired
+	// 	)
+
+	// 	// Creation should succeed (expiration is checked on retrieval)
+	// 	created, err := repo.CreateSession(ctx, session)
+	// 	require.NoError(t, err)
+
+	// 	// First retrieval should fail with expired error
+	// 	_, err = repo.GetSessionByID(ctx, created.UUID)
+	// 	require.Error(t, err)
+	// 	assert.True(t, errors.Is(err, ErrInvalidSession), "should detect expired session on retrieval")
+	// 	assert.Contains(t, err.Error(), "session has expired")
+
+	// 	// Second retrieval should also fail with inactive session error
+	// 	_, err = repo.GetSessionByID(ctx, created.UUID)
+	// 	require.Error(t, err)
+	// 	assert.Contains(t, err.Error(), "session is not active")
 	// })
 }
 

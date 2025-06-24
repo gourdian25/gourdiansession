@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (58.4%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (58.3%)</option>
 				
 				<option value="file1">github.com/gourdian25/gourdiansession/gourdiansessionRedisRepositoryImp.go (79.5%)</option>
 				
@@ -323,36 +323,37 @@ func (r *GourdianSessionMongoRepository) GetSessionByID(ctx context.Context, ses
         }
 
         // Check if session is deleted
-        <span class="cov8" title="1">if session.DeletedAt != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if session.DeletedAt != nil &amp;&amp; !session.DeletedAt.IsZero() </span><span class="cov0" title="0">{
                 return nil, fmt.Errorf("%w: session has been deleted", ErrNotFound)
-        }</span>
-
-        // Check session status
-        <span class="cov8" title="1">if session.Status != SessionStatusActive </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("%w: session is not active", ErrInvalidSession)
         }</span>
 
         // Check if session is expired
         <span class="cov8" title="1">if session.ExpiresAt.Before(time.Now()) </span><span class="cov0" title="0">{
-                // Update session status to expired using the UUID
-                update := bson.M{
-                        "$set": bson.M{
-                                "status":    SessionStatusExpired,
-                                "updatedAt": time.Now(),
-                        },
+                // Update session status to expired if it's not already
+                if session.Status != SessionStatusExpired </span><span class="cov0" title="0">{
+                        update := bson.M{
+                                "$set": bson.M{
+                                        "status":    SessionStatusExpired,
+                                        "updatedAt": time.Now(),
+                                },
+                        }
+
+                        _, updateErr := r.sessionsCollection.UpdateOne(
+                                ctx,
+                                filter,
+                                update,
+                        )
+                        if updateErr != nil </span><span class="cov0" title="0">{
+                                log.Printf("failed to mark session as expired: %v", updateErr)
+                        }</span>
                 }
-
-                _, updateErr := r.sessionsCollection.UpdateOne(
-                        ctx,
-                        bson.M{"uuid": sessionID},
-                        update,
-                )
-                if updateErr != nil </span><span class="cov0" title="0">{
-                        log.Printf("failed to mark session as expired: %v", updateErr)
-                }</span>
-
                 <span class="cov0" title="0">return nil, fmt.Errorf("%w: session has expired", ErrInvalidSession)</span>
         }
+
+        // Check session status (after expiration check)
+        <span class="cov8" title="1">if session.Status != SessionStatusActive </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("%w: session is not active", ErrInvalidSession)
+        }</span>
 
         <span class="cov8" title="1">return &amp;session, nil</span>
 }
