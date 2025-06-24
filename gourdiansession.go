@@ -39,12 +39,12 @@ type GourdianSessionType struct {
 	Status        string          `json:"status" bson:"status" gorm:"type:varchar(16);index;index:user_status;index:status_expires"`
 	IPAddress     *string         `json:"ip_address" bson:"ip_address"`
 	UserAgent     *string         `json:"user_agent" bson:"user_agent"`
-	Roles         []string        `json:"roles" bson:"roles" gorm:"type:jsonb"` // Changed from []Role to []string
+	Roles         []string        `json:"roles" bson:"roles" gorm:"type:jsonb"`
 	ExpiresAt     time.Time       `json:"expires_at" bson:"expires_at" gorm:"index:status_expires"`
 	CreatedAt     time.Time       `json:"created_at" bson:"created_at"`
 	LastActivity  time.Time       `json:"last_activity" bson:"last_activity"`
 	DeletedAt     *time.Time      `json:"deleted_at" bson:"deleted_at" gorm:"index"`
-	TempData      *map[string]any `json:"temp_data,omitempty" bson:"temp_data,omitempty" gorm:"-"` // runtime-only
+	TempData      *map[string]any `json:"temp_data,omitempty" bson:"temp_data,omitempty" gorm:"-"`
 }
 
 // NewGurdianSessionObject initializes a new session object with defaults.
@@ -52,7 +52,7 @@ func NewGurdianSessionObject(
 	userID uuid.UUID,
 	username string,
 	ipAddress, userAgent *string,
-	roles []string, // Changed from []Role to []string
+	roles []string,
 	sessionDuration time.Duration,
 ) *GourdianSessionType {
 	now := time.Now()
