@@ -682,61 +682,61 @@ func TestMongoRepository_ValidateSessionByID(t *testing.T) {
 	})
 }
 
-// func TestMongoRepository_RevokeSessionByID(t *testing.T) {
-// 	db := setupTestMongoDB(t)
-// 	defer cleanupTestMongoDB(t, db)
+func TestMongoRepository_RevokeSessionByID(t *testing.T) {
+	db := setupTestMongoDB(t)
+	defer cleanupTestMongoDB(t, db)
 
-// 	repo := NewGourdianSessionMongoRepository(db, false)
-// 	ctx := context.Background()
+	repo := NewGourdianSessionMongoRepository(db, false)
+	ctx := context.Background()
 
-// 	t.Run("successful revocation", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
+	// t.Run("successful revocation", func(t *testing.T) {
+	// 	session := NewGurdianSessionObject(
+	// 		uuid.New(),
+	// 		"testuser",
+	// 		nil,
+	// 		nil,
+	// 		[]Role{},
+	// 		30*time.Minute,
+	// 	)
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+	// 	_, err := repo.CreateSession(ctx, session)
+	// 	require.NoError(t, err)
 
-// 		err = repo.RevokeSessionByID(ctx, session.UUID)
-// 		require.NoError(t, err)
+	// 	err = repo.RevokeSessionByID(ctx, session.UUID)
+	// 	require.NoError(t, err)
 
-// 		// Verify session is revoked
-// 		stored, err := repo.GetSessionByID(ctx, session.UUID)
-// 		require.NoError(t, err)
-// 		assert.Equal(t, SessionStatusRevoked, stored.Status)
-// 		assert.True(t, stored.ExpiresAt.Before(time.Now().Add(2*time.Minute)))
-// 	})
+	// 	// Verify session is revoked
+	// 	stored, err := repo.GetSessionByID(ctx, session.UUID)
+	// 	require.NoError(t, err)
+	// 	assert.Equal(t, SessionStatusRevoked, stored.Status)
+	// 	assert.True(t, stored.ExpiresAt.Before(time.Now().Add(2*time.Minute)))
+	// })
 
-// 	t.Run("revoke non-existent session", func(t *testing.T) {
-// 		err := repo.RevokeSessionByID(ctx, uuid.New())
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "active session not found")
-// 	})
+	t.Run("revoke non-existent session", func(t *testing.T) {
+		err := repo.RevokeSessionByID(ctx, uuid.New())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "active session not found")
+	})
 
-// 	t.Run("revoke already revoked session", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			30*time.Minute,
-// 		)
-// 		session.Status = SessionStatusRevoked
+	t.Run("revoke already revoked session", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			30*time.Minute,
+		)
+		session.Status = SessionStatusRevoked
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
 
-// 		err = repo.RevokeSessionByID(ctx, session.UUID)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "active session not found")
-// 	})
-// }
+		err = repo.RevokeSessionByID(ctx, session.UUID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "active session not found")
+	})
+}
 
 // func TestMongoRepository_GetSessionsByUserID(t *testing.T) {
 // 	db := setupTestMongoDB(t)

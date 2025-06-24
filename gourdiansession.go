@@ -222,7 +222,7 @@ func (r *GourdianSessionMongoRepository) RevokeSessionByID(ctx context.Context, 
 			return fmt.Errorf("failed to find session: %w", err)
 		}
 
-		// Update to revoke
+		// Update to revoke using the UUID filter
 		update := bson.M{
 			"$set": bson.M{
 				"status":       SessionStatusRevoked,
@@ -232,7 +232,12 @@ func (r *GourdianSessionMongoRepository) RevokeSessionByID(ctx context.Context, 
 			},
 		}
 
-		_, err = r.sessionsCollection.UpdateByID(sessionCtx, session.ID, update)
+		// Use UpdateOne with the UUID filter instead of UpdateByID
+		_, err = r.sessionsCollection.UpdateOne(
+			sessionCtx,
+			bson.M{"uuid": sessionID},
+			update,
+		)
 		return err
 	})
 }
