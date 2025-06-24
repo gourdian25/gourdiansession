@@ -477,27 +477,25 @@ func (r *GourdianSessionMongoRepository) RevokeSessionsExcept(ctx context.Contex
 
 func (r *GourdianSessionMongoRepository) ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) error {
 	return r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error {
-		// First get the current session to check status
+		// First get the current session to check status and get current expiry
 		session, err := r.GetSessionByID(sessionCtx, sessionID)
 		if err != nil {
 			return err
 		}
 
 		if session.Status != SessionStatusActive {
-			return fmt.Errorf("%w: cannot extend inactive session", ErrInvalidSession)
+			return fmt.Errorf("%w: session is not active", ErrInvalidSession)
 		}
 
-		newExpiry := time.Now().Add(duration)
-		if newExpiry.Before(session.ExpiresAt) {
-			return fmt.Errorf("%w: new duration would shorten existing session", ErrInvalidInput)
-		}
+		// Extend from the current expiration time, not from now
+		newExpiry := session.ExpiresAt.Add(duration)
 
 		filter := bson.M{"uuid": sessionID}
 		update := bson.M{
 			"$set": bson.M{
-				"expiresAt":    newExpiry,
-				"lastActivity": time.Now(),
-				"updatedAt":    time.Now(),
+				"expires_at":    newExpiry,
+				"last_activity": time.Now(),
+				"updated_at":    time.Now(),
 			},
 		}
 
