@@ -1164,7 +1164,21 @@ func (s *GourdianSessionService) isUserAgentBlocked(userAgent string) bool {
 	return false
 }
 
-func NewGourdianRedisSession(redisClient *redis.Client, config *GourdianSessionConfig) GourdianSessionServiceInt {
+func NewRedisGourdiansession(
+	config *GourdianSessionConfig,
+	redisClient *redis.Client,
+) GourdianSessionServiceInt {
 	redisRepo := NewGurdianSessionRedisRepository(redisClient)
 	return NewGourdianSessionService(redisRepo, config)
+}
+
+func NewMongoGourdiansession(
+	config *GourdianSessionConfig,
+	mongoClient *mongo.Client,
+	enableTransactions bool,
+	dbName string,
+) GourdianSessionServiceInt {
+	db := mongoClient.Database(dbName)
+	mongoRepo := NewGourdianSessionMongoRepository(db, enableTransactions)
+	return NewGourdianSessionService(mongoRepo, config)
 }

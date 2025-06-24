@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (38.0%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (37.8%)</option>
 				
 				<option value="file1">github.com/gourdian25/gourdiansession/gourdiansessionRedisRepositoryImp.go (79.5%)</option>
 				
@@ -1237,9 +1237,23 @@ func (s *GourdianSessionService) isUserAgentBlocked(userAgent string) bool <span
         <span class="cov8" title="1">return false</span>
 }
 
-func NewGourdianRedisSession(redisClient *redis.Client, config *GourdianSessionConfig) GourdianSessionServiceInt <span class="cov8" title="1">{
+func NewRedisGourdiansession(
+        config *GourdianSessionConfig,
+        redisClient *redis.Client,
+) GourdianSessionServiceInt <span class="cov8" title="1">{
         redisRepo := NewGurdianSessionRedisRepository(redisClient)
         return NewGourdianSessionService(redisRepo, config)
+}</span>
+
+func NewMongoGourdiansession(
+        config *GourdianSessionConfig,
+        mongoClient *mongo.Client,
+        enableTransactions bool,
+        dbName string,
+) GourdianSessionServiceInt <span class="cov0" title="0">{
+        db := mongoClient.Database(dbName)
+        mongoRepo := NewGourdianSessionMongoRepository(db, enableTransactions)
+        return NewGourdianSessionService(mongoRepo, config)
 }</span>
 </pre>
 		

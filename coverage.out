@@ -310,7 +310,8 @@ github.com/gourdian25/gourdiansession/gourdiansession.go:1157.2,1158.55 2 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:1158.55,1159.60 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:1159.60,1161.4 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:1164.2,1164.14 1 1
-github.com/gourdian25/gourdiansession/gourdiansession.go:1167.114,1170.2 2 1
+github.com/gourdian25/gourdiansession/gourdiansession.go:1170.29,1173.2 2 1
+github.com/gourdian25/gourdiansession/gourdiansession.go:1180.29,1184.2 3 0
 github.com/gourdian25/gourdiansession/gourdiansessionRedisRepositoryImp.go:29.89,33.2 1 1
 github.com/gourdian25/gourdiansession/gourdiansessionRedisRepositoryImp.go:35.80,37.2 1 1
 github.com/gourdian25/gourdiansession/gourdiansessionRedisRepositoryImp.go:39.82,41.2 1 1

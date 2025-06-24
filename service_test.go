@@ -352,7 +352,7 @@ func TestNewGourdianSession(t *testing.T) {
 	defer cleanupTestRedis(t, client)
 
 	config := testConfig()
-	service := NewGourdianRedisSession(client, config)
+	service := NewRedisGourdiansession(config, client)
 
 	assert.NotNil(t, service)
 }
