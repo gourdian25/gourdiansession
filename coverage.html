@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (78.9%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (79.9%)</option>
 				
 				</select>
 			</div>
@@ -719,7 +719,7 @@ func (s *GourdianSessionService) CreateSession(ctx context.Context, userID uuid.
                 return nil, fmt.Errorf("%w: username cannot be empty", ErrInvalidInput)
         }</span>
 
-        <span class="cov8" title="1">if userAgent != nil &amp;&amp; s.isUserAgentBlocked(*userAgent) </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if userAgent != nil &amp;&amp; s.isUserAgentBlocked(*userAgent) </span><span class="cov8" title="1">{
                 return nil, fmt.Errorf("%w: user agent is blocked", ErrForbidden)
         }</span>
 
@@ -943,7 +943,7 @@ func (s *GourdianSessionService) SetSessionData(ctx context.Context, sessionID u
         if sessionID == uuid.Nil </span><span class="cov0" title="0">{
                 return fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
         }</span>
-        <span class="cov8" title="1">if key == "" </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if key == "" </span><span class="cov8" title="1">{
                 return fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
         }</span>
 
@@ -1001,7 +1001,7 @@ func (s *GourdianSessionService) SetTemporaryData(ctx context.Context, key strin
         if key == "" </span><span class="cov0" title="0">{
                 return fmt.Errorf("%w: key cannot be empty", ErrInvalidInput)
         }</span>
-        <span class="cov8" title="1">if ttl &lt;= 0 </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if ttl &lt;= 0 </span><span class="cov8" title="1">{
                 return fmt.Errorf("%w: TTL must be positive", ErrInvalidInput)
         }</span>
 
@@ -1118,7 +1118,7 @@ func (s *GourdianSessionService) isUserAgentBlocked(userAgent string) bool <span
 
         <span class="cov8" title="1">uaLower := strings.ToLower(userAgent)
         for _, blockedUA := range s.config.BlockedUserAgents </span><span class="cov8" title="1">{
-                if strings.Contains(uaLower, strings.ToLower(blockedUA)) </span><span class="cov0" title="0">{
+                if strings.Contains(uaLower, strings.ToLower(blockedUA)) </span><span class="cov8" title="1">{
                         return true
                 }</span>
         }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -283,11 +284,14 @@ func TestSessionService_EdgeCases(t *testing.T) {
 		svc := NewGourdianSessionService(repo, cfg)
 
 		session, _ := createTestSession(t, svc)
+		originalExpiry := session.ExpiresAt.UTC() // Ensure UTC timezone
 
 		// Should not extend since renewal window is negative
 		refreshed, err := svc.RefreshSession(ctx, session.UUID)
 		require.NoError(t, err)
-		assert.Equal(t, session.ExpiresAt, refreshed.ExpiresAt)
+
+		// Compare UTC times to avoid timezone mismatch
+		assert.Equal(t, originalExpiry, refreshed.ExpiresAt.UTC())
 	})
 
 	t.Run("extend session with zero duration", func(t *testing.T) {
@@ -313,100 +317,100 @@ func TestSessionService_EdgeCases(t *testing.T) {
 	})
 }
 
-// func TestSessionService_ConcurrencyEdgeCases(t *testing.T) {
-// 	client := setupTestRedis()
-// 	defer cleanupTestRedis(t, client)
+func TestSessionService_ConcurrencyEdgeCases(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
 
-// 	repo := NewGurdianRedisSessionRepository(client)
-// 	svc := NewGourdianSessionService(repo, testConfig())
-// 	ctx := context.Background()
+	repo := NewGurdianRedisSessionRepository(client)
+	svc := NewGourdianSessionService(repo, testConfig())
+	ctx := context.Background()
 
-// 	t.Run("concurrent session validation", func(t *testing.T) {
-// 		session, _ := createTestSession(t, svc)
-// 		var wg sync.WaitGroup
-// 		errChan := make(chan error, 10)
+	t.Run("concurrent session validation", func(t *testing.T) {
+		session, _ := createTestSession(t, svc)
+		var wg sync.WaitGroup
+		errChan := make(chan error, 10)
 
-// 		for i := 0; i < 10; i++ {
-// 			wg.Add(1)
-// 			go func() {
-// 				defer wg.Done()
-// 				_, err := svc.ValidateSession(ctx, session.UUID)
-// 				errChan <- err
-// 			}()
-// 		}
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, err := svc.ValidateSession(ctx, session.UUID)
+				errChan <- err
+			}()
+		}
 
-// 		wg.Wait()
-// 		close(errChan)
+		wg.Wait()
+		close(errChan)
 
-// 		for err := range errChan {
-// 			require.NoError(t, err)
-// 		}
-// 	})
+		for err := range errChan {
+			require.NoError(t, err)
+		}
+	})
 
-// 	t.Run("concurrent session revocation", func(t *testing.T) {
-// 		session, _ := createTestSession(t, svc)
-// 		var wg sync.WaitGroup
-// 		errChan := make(chan error, 5)
+	t.Run("concurrent session revocation", func(t *testing.T) {
+		session, _ := createTestSession(t, svc)
+		var wg sync.WaitGroup
+		errChan := make(chan error, 5)
 
-// 		for i := 0; i < 5; i++ {
-// 			wg.Add(1)
-// 			go func() {
-// 				defer wg.Done()
-// 				err := svc.RevokeSession(ctx, session.UUID)
-// 				errChan <- err
-// 			}()
-// 		}
+		for i := 0; i < 5; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				err := svc.RevokeSession(ctx, session.UUID)
+				errChan <- err
+			}()
+		}
 
-// 		wg.Wait()
-// 		close(errChan)
+		wg.Wait()
+		close(errChan)
 
-// 		// Only one revocation should succeed, others may fail
-// 		var successCount int
-// 		for err := range errChan {
-// 			if err == nil {
-// 				successCount++
-// 			} else {
-// 				assert.Contains(t, err.Error(), "session not found")
-// 			}
-// 		}
-// 		assert.Equal(t, 1, successCount)
-// 	})
+		// Only one revocation should succeed, others may fail
+		var successCount int
+		for err := range errChan {
+			if err == nil {
+				successCount++
+			} else {
+				assert.Contains(t, err.Error(), "session not found")
+			}
+		}
+		assert.Equal(t, 1, successCount)
+	})
 
-// 	t.Run("concurrent session data operations", func(t *testing.T) {
-// 		session, _ := createTestSession(t, svc)
-// 		key := "concurrent_key"
-// 		var wg sync.WaitGroup
+	t.Run("concurrent session data operations", func(t *testing.T) {
+		session, _ := createTestSession(t, svc)
+		key := "concurrent_key"
+		var wg sync.WaitGroup
 
-// 		// Set initial value
-// 		err := svc.SetSessionData(ctx, session.UUID, key, 0)
-// 		require.NoError(t, err)
+		// Set initial value
+		err := svc.SetSessionData(ctx, session.UUID, key, 0)
+		require.NoError(t, err)
 
-// 		// Run concurrent increments
-// 		for i := 0; i < 10; i++ {
-// 			wg.Add(1)
-// 			go func() {
-// 				defer wg.Done()
-// 				// Get current value
-// 				val, err := svc.GetSessionData(ctx, session.UUID, key)
-// 				if err != nil {
-// 					return
-// 				}
+		// Run concurrent increments
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				// Get current value
+				val, err := svc.GetSessionData(ctx, session.UUID, key)
+				if err != nil {
+					return
+				}
 
-// 				// Increment and set back
-// 				num, ok := val.(float64)
-// 				if !ok {
-// 					return
-// 				}
-// 				_ = svc.SetSessionData(ctx, session.UUID, key, num+1)
-// 			}()
-// 		}
+				// Increment and set back
+				num, ok := val.(float64)
+				if !ok {
+					return
+				}
+				_ = svc.SetSessionData(ctx, session.UUID, key, num+1)
+			}()
+		}
 
-// 		wg.Wait()
+		wg.Wait()
 
-// 		// Verify final value - may not be 10 due to race conditions
-// 		finalVal, err := svc.GetSessionData(ctx, session.UUID, key)
-// 		require.NoError(t, err)
-// 		assert.Greater(t, finalVal.(float64), float64(0))
-// 		assert.LessOrEqual(t, finalVal.(float64), float64(10))
-// 	})
-// }
+		// Verify final value - may not be 10 due to race conditions
+		finalVal, err := svc.GetSessionData(ctx, session.UUID, key)
+		require.NoError(t, err)
+		assert.Greater(t, finalVal.(float64), float64(0))
+		assert.LessOrEqual(t, finalVal.(float64), float64(10))
+	})
+}

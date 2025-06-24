@@ -157,7 +157,7 @@ github.com/gourdian25/gourdiansession/gourdiansession.go:644.24,646.3 1 0
 github.com/gourdian25/gourdiansession/gourdiansession.go:647.2,647.20 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:647.20,649.3 1 0
 github.com/gourdian25/gourdiansession/gourdiansession.go:651.2,651.58 1 1
-github.com/gourdian25/gourdiansession/gourdiansession.go:651.58,653.3 1 0
+github.com/gourdian25/gourdiansession/gourdiansession.go:651.58,653.3 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:655.2,655.82 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:655.82,657.3 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:659.2,669.16 3 1
@@ -241,7 +241,7 @@ github.com/gourdian25/gourdiansession/gourdiansession.go:868.2,868.21 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:871.128,872.27 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:872.27,874.3 1 0
 github.com/gourdian25/gourdiansession/gourdiansession.go:875.2,875.15 1 1
-github.com/gourdian25/gourdiansession/gourdiansession.go:875.15,877.3 1 0
+github.com/gourdian25/gourdiansession/gourdiansession.go:875.15,877.3 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:879.2,879.61 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:879.61,881.3 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:883.2,883.74 1 1
@@ -268,7 +268,7 @@ github.com/gourdian25/gourdiansession/gourdiansession.go:926.2,926.12 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:929.128,930.15 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:930.15,932.3 1 0
 github.com/gourdian25/gourdiansession/gourdiansession.go:933.2,933.14 1 1
-github.com/gourdian25/gourdiansession/gourdiansession.go:933.14,935.3 1 0
+github.com/gourdian25/gourdiansession/gourdiansession.go:933.14,935.3 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:937.2,937.70 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:937.70,939.3 1 0
 github.com/gourdian25/gourdiansession/gourdiansession.go:941.2,941.12 1 1
@@ -318,6 +318,6 @@ github.com/gourdian25/gourdiansession/gourdiansession.go:1043.76,1044.42 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:1044.42,1046.3 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:1048.2,1049.55 2 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:1049.55,1050.60 1 1
-github.com/gourdian25/gourdiansession/gourdiansession.go:1050.60,1052.4 1 0
+github.com/gourdian25/gourdiansession/gourdiansession.go:1050.60,1052.4 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:1055.2,1055.14 1 1
 github.com/gourdian25/gourdiansession/gourdiansession.go:1058.109,1061.2 2 1
