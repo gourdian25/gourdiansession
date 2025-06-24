@@ -459,7 +459,7 @@ func TestMongoRepository_GetSessionByID(t *testing.T) {
 // 		assert.Contains(t, err.Error(), "session not found")
 // 	})
 
-// 	t.Run("update with changed user ID", func(t *testing.T) {
+// 	t.Run("cannot change user ID", func(t *testing.T) {
 // 		session := NewGurdianSessionObject(
 // 			uuid.New(),
 // 			"testuser",
@@ -472,14 +472,15 @@ func TestMongoRepository_GetSessionByID(t *testing.T) {
 // 		_, err := repo.CreateSession(ctx, session)
 // 		require.NoError(t, err)
 
-// 		// Change user ID
+// 		originalUserID := session.UserID
 // 		session.UserID = uuid.New()
-// 		updated, err := repo.UpdateSession(ctx, session)
-// 		require.NoError(t, err)
-// 		assert.Equal(t, session.UserID, updated.UserID)
 
-// 		// Verify the session can be found under new user ID
-// 		sessions, err := repo.GetSessionsByUserID(ctx, session.UserID)
+// 		_, err = repo.UpdateSession(ctx, session)
+// 		require.Error(t, err)
+// 		assert.Contains(t, err.Error(), "cannot change user ID")
+
+// 		// Verify original user ID still works
+// 		sessions, err := repo.GetSessionsByUserID(ctx, originalUserID)
 // 		require.NoError(t, err)
 // 		assert.Len(t, sessions, 1)
 // 		assert.Equal(t, session.UUID, sessions[0].UUID)

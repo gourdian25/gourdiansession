@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (59.4%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (58.6%)</option>
 				
 				<option value="file1">github.com/gourdian25/gourdiansession/gourdiansessionRedisRepositoryImp.go (79.5%)</option>
 				
@@ -253,7 +253,7 @@ func (r *GourdianSessionMongoRepository) CreateSession(ctx context.Context, sess
                         return fmt.Errorf("%w: session already exists", ErrConflict)
                 }</span>
 
-                // Insert new session
+                // Insert new session with current timestamps
                 <span class="cov8" title="1">session.CreatedAt = time.Now()
                 session.LastActivity = time.Now()
 
@@ -266,8 +266,8 @@ func (r *GourdianSessionMongoRepository) CreateSession(ctx context.Context, sess
                 }
 
                 // Retrieve the created session to return
-                <span class="cov8" title="1">createdSession, err = r.GetSessionByID(sessionCtx, session.UUID)
-                return err</span>
+                <span class="cov8" title="1">createdSession, _ = r.GetSessionByID(sessionCtx, session.UUID)
+                return nil</span>
         })
 
         <span class="cov8" title="1">if err != nil </span><span class="cov8" title="1">{
@@ -279,48 +279,48 @@ func (r *GourdianSessionMongoRepository) CreateSession(ctx context.Context, sess
 
 func (r *GourdianSessionMongoRepository) RevokeSessionByID(ctx context.Context, sessionID uuid.UUID) error <span class="cov0" title="0">{
         return r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error </span><span class="cov0" title="0">{
+                // First get the session to ensure it exists and is active
                 filter := bson.M{
                         "uuid":   sessionID,
                         "status": SessionStatusActive,
                 }
 
-                update := bson.M{
+                var session GourdianSessionType
+                err := r.sessionsCollection.FindOne(sessionCtx, filter).Decode(&amp;session)
+                if err != nil </span><span class="cov0" title="0">{
+                        if err == mongo.ErrNoDocuments </span><span class="cov0" title="0">{
+                                return fmt.Errorf("%w: active session not found", ErrNotFound)
+                        }</span>
+                        <span class="cov0" title="0">return fmt.Errorf("failed to find session: %w", err)</span>
+                }
+
+                // Update to revoke
+                <span class="cov0" title="0">update := bson.M{
                         "$set": bson.M{
-                                "status":    SessionStatusRevoked,
-                                "expiresAt": time.Now().Add(1 * time.Minute),
-                                "updatedAt": time.Now(),
+                                "status":       SessionStatusRevoked,
+                                "expiresAt":    time.Now().Add(1 * time.Minute),
+                                "updatedAt":    time.Now(),
+                                "lastActivity": time.Now(),
                         },
                 }
 
-                result, err := r.sessionsCollection.UpdateOne(sessionCtx, filter, update)
-                if err != nil </span><span class="cov0" title="0">{
-                        return fmt.Errorf("failed to revoke session: %w", err)
-                }</span>
-
-                <span class="cov0" title="0">if result.MatchedCount == 0 </span><span class="cov0" title="0">{
-                        return fmt.Errorf("%w: active session not found", ErrNotFound)
-                }</span>
-
-                <span class="cov0" title="0">return nil</span>
+                _, err = r.sessionsCollection.UpdateByID(sessionCtx, session.ID, update)
+                return err</span>
         })
 }
 
 func (r *GourdianSessionMongoRepository) GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) <span class="cov8" title="1">{
+        // Read operation doesn't need transaction
         filter := bson.M{"uuid": sessionID}
 
         var session GourdianSessionType
         err := r.sessionsCollection.FindOne(ctx, filter).Decode(&amp;session)
-        if err != nil </span><span class="cov8" title="1">{
-                if err == mongo.ErrNoDocuments </span><span class="cov8" title="1">{
+        if err != nil </span><span class="cov0" title="0">{
+                if err == mongo.ErrNoDocuments </span><span class="cov0" title="0">{
                         return nil, fmt.Errorf("%w: session not found", ErrNotFound)
                 }</span>
                 <span class="cov0" title="0">return nil, fmt.Errorf("failed to get session: %w", err)</span>
         }
-
-        // Check if session is expired
-        <span class="cov8" title="1">if session.ExpiresAt.Before(time.Now()) </span><span class="cov8" title="1">{
-                return nil, fmt.Errorf("%w: session has expired", ErrInvalidSession)
-        }</span>
 
         <span class="cov8" title="1">return &amp;session, nil</span>
 }
@@ -335,6 +335,7 @@ func (r *GourdianSessionMongoRepository) UpdateSession(ctx context.Context, sess
         err := r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error </span><span class="cov0" title="0">{
                 filter := bson.M{"uuid": session.UUID}
 
+                // Ensure we don't update critical fields that shouldn't change
                 update := bson.M{
                         "$set": bson.M{
                                 "authenticated": session.Authenticated,
@@ -379,10 +380,10 @@ func (r *GourdianSessionMongoRepository) UpdateSession(ctx context.Context, sess
 
 func (r *GourdianSessionMongoRepository) DeleteSession(ctx context.Context, sessionID uuid.UUID) error <span class="cov0" title="0">{
         return r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error </span><span class="cov0" title="0">{
-                // First delete session data
+                // First delete associated session data
                 _, err := r.sessionsCollection.DeleteMany(
                         sessionCtx,
-                        bson.M{"uuid": sessionID},
+                        bson.M{"sessionId": sessionID},
                 )
                 if err != nil </span><span class="cov0" title="0">{
                         return fmt.Errorf("failed to delete session data: %w", err)
@@ -406,9 +407,10 @@ func (r *GourdianSessionMongoRepository) DeleteSession(ctx context.Context, sess
 }
 
 func (r *GourdianSessionMongoRepository) GetSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error) <span class="cov8" title="1">{
+        // Read operation doesn't need transaction
         filter := bson.M{
                 "userId":    userID,
-                "deletedAt": bson.M{"$exists": false},
+                "deletedAt": nil, // Only non-deleted sessions
         }
 
         cursor, err := r.sessionsCollection.Find(ctx, filter)
@@ -455,18 +457,19 @@ func (r *GourdianSessionMongoRepository) GetActiveSessionsByUserID(ctx context.C
 
 func (r *GourdianSessionMongoRepository) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error <span class="cov8" title="1">{
         return r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error </span><span class="cov8" title="1">{
+                now := time.Now()
                 filter := bson.M{
                         "userId":    userID,
                         "status":    SessionStatusActive,
-                        "expiresAt": bson.M{"$gt": time.Now()},
-                        "deletedAt": bson.M{"$exists": false},
+                        "expiresAt": bson.M{"$gt": now},
+                        "deletedAt": nil,
                 }
 
                 update := bson.M{
                         "$set": bson.M{
                                 "status":    SessionStatusRevoked,
-                                "expiresAt": time.Now().Add(1 * time.Minute),
-                                "updatedAt": time.Now(),
+                                "expiresAt": now.Add(1 * time.Minute),
+                                "updatedAt": now,
                         },
                 }
 
@@ -508,7 +511,7 @@ func (r *GourdianSessionMongoRepository) RevokeSessionsExcept(ctx context.Contex
 
 func (r *GourdianSessionMongoRepository) ExtendSession(ctx context.Context, sessionID uuid.UUID, duration time.Duration) error <span class="cov0" title="0">{
         return r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error </span><span class="cov0" title="0">{
-                // First get the current session to check status and get current expiry
+                // First get the current session to check status
                 session, err := r.GetSessionByID(sessionCtx, sessionID)
                 if err != nil </span><span class="cov0" title="0">{
                         return err
@@ -518,22 +521,22 @@ func (r *GourdianSessionMongoRepository) ExtendSession(ctx context.Context, sess
                         return fmt.Errorf("%w: cannot extend inactive session", ErrInvalidSession)
                 }</span>
 
-                <span class="cov0" title="0">newExpiry := session.ExpiresAt.Add(duration)
+                <span class="cov0" title="0">newExpiry := time.Now().Add(duration)
+                if newExpiry.Before(session.ExpiresAt) </span><span class="cov0" title="0">{
+                        return fmt.Errorf("%w: new duration would shorten existing session", ErrInvalidInput)
+                }</span>
 
-                filter := bson.M{"uuid": sessionID}
+                <span class="cov0" title="0">filter := bson.M{"uuid": sessionID}
                 update := bson.M{
                         "$set": bson.M{
-                                "expiresAt": newExpiry,
-                                "updatedAt": time.Now(),
+                                "expiresAt":    newExpiry,
+                                "lastActivity": time.Now(),
+                                "updatedAt":    time.Now(),
                         },
                 }
 
                 _, err = r.sessionsCollection.UpdateOne(sessionCtx, filter, update)
-                if err != nil </span><span class="cov0" title="0">{
-                        return fmt.Errorf("failed to extend session: %w", err)
-                }</span>
-
-                <span class="cov0" title="0">return nil</span>
+                return err</span>
         })
 }
 
@@ -555,24 +558,52 @@ func (r *GourdianSessionMongoRepository) UpdateSessionActivity(ctx context.Conte
 }
 
 func (r *GourdianSessionMongoRepository) ValidateSessionByID(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) <span class="cov8" title="1">{
-        session, err := r.GetSessionByID(ctx, sessionID)
-        if err != nil </span><span class="cov0" title="0">{
+        // This is a read operation but has side effects, so we use transaction
+        var session *GourdianSessionType
+        var validateErr error
+
+        err := r.withTransaction(ctx, func(sessionCtx mongo.SessionContext) error </span><span class="cov8" title="1">{
+                session, validateErr = r.GetSessionByID(sessionCtx, sessionID)
+                if validateErr != nil </span><span class="cov0" title="0">{
+                        return validateErr
+                }</span>
+
+                <span class="cov8" title="1">if session.Status != SessionStatusActive </span><span class="cov0" title="0">{
+                        validateErr = fmt.Errorf("%w: session is not active", ErrInvalidSession)
+                        return validateErr
+                }</span>
+
+                <span class="cov8" title="1">if session.ExpiresAt.Before(time.Now()) </span><span class="cov0" title="0">{
+                        // Update session status to expired
+                        update := bson.M{
+                                "$set": bson.M{
+                                        "status":    SessionStatusExpired,
+                                        "updatedAt": time.Now(),
+                                },
+                        }
+
+                        _, updateErr := r.sessionsCollection.UpdateByID(
+                                sessionCtx,
+                                session.ID,
+                                update,
+                        )
+                        if updateErr != nil </span><span class="cov0" title="0">{
+                                log.Printf("failed to mark session as expired: %v", updateErr)
+                        }</span>
+
+                        <span class="cov0" title="0">validateErr = fmt.Errorf("%w: session has expired", ErrInvalidSession)
+                        return validateErr</span>
+                }
+
+                <span class="cov8" title="1">return nil</span>
+        })
+
+        <span class="cov8" title="1">if err != nil </span><span class="cov0" title="0">{
                 return nil, err
         }</span>
-
-        <span class="cov8" title="1">if session.Status != SessionStatusActive </span><span class="cov0" title="0">{
-                return nil, fmt.Errorf("%w: session is not active", ErrInvalidSession)
+        <span class="cov8" title="1">if validateErr != nil </span><span class="cov0" title="0">{
+                return nil, validateErr
         }</span>
-
-        <span class="cov8" title="1">if session.ExpiresAt.Before(time.Now()) </span><span class="cov0" title="0">{
-                // Update session status to expired
-                session.Status = SessionStatusExpired
-                _, updateErr := r.UpdateSession(ctx, session)
-                if updateErr != nil </span><span class="cov0" title="0">{
-                        log.Printf("failed to mark session as expired: %v", updateErr)
-                }</span>
-                <span class="cov0" title="0">return nil, fmt.Errorf("%w: session has expired", ErrInvalidSession)</span>
-        }
 
         <span class="cov8" title="1">return session, nil</span>
 }
