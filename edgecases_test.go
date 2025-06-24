@@ -1,3 +1,5 @@
+// File: edgecases_test.go
+
 // edgecases_test.go
 package gourdiansession
 

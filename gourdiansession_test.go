@@ -1,3 +1,5 @@
+// File: gourdiansession_test.go
+
 // gourdiansession_test.go
 package gourdiansession
 
