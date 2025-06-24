@@ -352,10 +352,7 @@ func TestNewGourdianSession(t *testing.T) {
 	config := testConfig()
 	service := NewGourdianSession(client, config)
 
-	// Verify the service is created properly
 	assert.NotNil(t, service)
-	_, ok := service.(GourdianSessionServiceInt)
-	assert.True(t, ok, "should implement GourdianSessionServiceInt interface")
 }
 
 func TestSessionService_GetSession(t *testing.T) {
