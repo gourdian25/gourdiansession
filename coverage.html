@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (79.9%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (79.7%)</option>
 				
 				</select>
 			</div>
@@ -264,16 +264,47 @@ func (r *GurdianRedisSessionRepository) CreateSession(ctx context.Context, sessi
 }
 
 func (r *GurdianRedisSessionRepository) RevokeSessionByID(ctx context.Context, sessionID uuid.UUID) error <span class="cov8" title="1">{
-        session, err := r.GetSessionByID(ctx, sessionID)
-        if err != nil </span><span class="cov8" title="1">{
-                return err
+        err := r.client.Watch(ctx, func(tx *redis.Tx) error </span><span class="cov8" title="1">{
+                // Get current session
+                sessionJSON, err := tx.Get(ctx, r.sessionKey(sessionID)).Result()
+                if errors.Is(err, redis.Nil) </span><span class="cov0" title="0">{
+                        return fmt.Errorf("%w: session not found", ErrNotFound)
+                }</span>
+                <span class="cov8" title="1">if err != nil </span><span class="cov0" title="0">{
+                        return fmt.Errorf("failed to get session: %w", err)
+                }</span>
+
+                <span class="cov8" title="1">var session GourdianSessionType
+                if err := json.Unmarshal([]byte(sessionJSON), &amp;session); err != nil </span><span class="cov0" title="0">{
+                        return fmt.Errorf("failed to unmarshal session: %w", err)
+                }</span>
+
+                // Only proceed if session is still active
+                <span class="cov8" title="1">if session.Status != SessionStatusActive </span><span class="cov0" title="0">{
+                        return fmt.Errorf("%w: session is not active", ErrInvalidSession)
+                }</span>
+
+                // Update session status
+                <span class="cov8" title="1">session.Status = SessionStatusRevoked
+                session.ExpiresAt = time.Now().Add(1 * time.Minute)
+
+                updatedJSON, err := json.Marshal(session)
+                if err != nil </span><span class="cov0" title="0">{
+                        return fmt.Errorf("failed to marshal session: %w", err)
+                }</span>
+
+                // Perform transaction
+                <span class="cov8" title="1">_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error </span><span class="cov8" title="1">{
+                        pipe.Set(ctx, r.sessionKey(sessionID), updatedJSON, time.Until(session.ExpiresAt))
+                        return nil
+                }</span>)
+                <span class="cov8" title="1">return err</span>
+        }, r.sessionKey(sessionID))
+
+        <span class="cov8" title="1">if errors.Is(err, redis.TxFailedErr) </span><span class="cov8" title="1">{
+                return fmt.Errorf("failed to revoke session: %w", ErrConflict)
         }</span>
-
-        <span class="cov8" title="1">session.Status = SessionStatusRevoked
-        session.ExpiresAt = time.Now().Add(1 * time.Minute)
-
-        _, err = r.UpdateSession(ctx, session)
-        return err</span>
+        <span class="cov8" title="1">return err</span>
 }
 
 func (r *GurdianRedisSessionRepository) GetSessionByID(ctx context.Context, sessionID uuid.UUID) (*GourdianSessionType, error) <span class="cov8" title="1">{
@@ -749,7 +780,7 @@ func (s *GourdianSessionService) RevokeSession(ctx context.Context, sessionID uu
                 return fmt.Errorf("%w: session ID cannot be empty", ErrInvalidInput)
         }</span>
 
-        <span class="cov8" title="1">if err := s.repo.RevokeSessionByID(ctx, sessionID); err != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if err := s.repo.RevokeSessionByID(ctx, sessionID); err != nil </span><span class="cov8" title="1">{
                 return fmt.Errorf("failed to revoke session: %w", err)
         }</span>
 

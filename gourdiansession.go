@@ -193,15 +193,46 @@ func (r *GurdianRedisSessionRepository) CreateSession(ctx context.Context, sessi
 }
 
 func (r *GurdianRedisSessionRepository) RevokeSessionByID(ctx context.Context, sessionID uuid.UUID) error {
-	session, err := r.GetSessionByID(ctx, sessionID)
-	if err != nil {
+	err := r.client.Watch(ctx, func(tx *redis.Tx) error {
+		// Get current session
+		sessionJSON, err := tx.Get(ctx, r.sessionKey(sessionID)).Result()
+		if errors.Is(err, redis.Nil) {
+			return fmt.Errorf("%w: session not found", ErrNotFound)
+		}
+		if err != nil {
+			return fmt.Errorf("failed to get session: %w", err)
+		}
+
+		var session GourdianSessionType
+		if err := json.Unmarshal([]byte(sessionJSON), &session); err != nil {
+			return fmt.Errorf("failed to unmarshal session: %w", err)
+		}
+
+		// Only proceed if session is still active
+		if session.Status != SessionStatusActive {
+			return fmt.Errorf("%w: session is not active", ErrInvalidSession)
+		}
+
+		// Update session status
+		session.Status = SessionStatusRevoked
+		session.ExpiresAt = time.Now().Add(1 * time.Minute)
+
+		updatedJSON, err := json.Marshal(session)
+		if err != nil {
+			return fmt.Errorf("failed to marshal session: %w", err)
+		}
+
+		// Perform transaction
+		_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+			pipe.Set(ctx, r.sessionKey(sessionID), updatedJSON, time.Until(session.ExpiresAt))
+			return nil
+		})
 		return err
+	}, r.sessionKey(sessionID))
+
+	if errors.Is(err, redis.TxFailedErr) {
+		return fmt.Errorf("failed to revoke session: %w", ErrConflict)
 	}
-
-	session.Status = SessionStatusRevoked
-	session.ExpiresAt = time.Now().Add(1 * time.Minute)
-
-	_, err = r.UpdateSession(ctx, session)
 	return err
 }
 

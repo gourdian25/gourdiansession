@@ -350,30 +350,48 @@ func TestSessionService_ConcurrencyEdgeCases(t *testing.T) {
 	t.Run("concurrent session revocation", func(t *testing.T) {
 		session, _ := createTestSession(t, svc)
 		var wg sync.WaitGroup
-		errChan := make(chan error, 5)
+		var mu sync.Mutex
+		var successCount int
+		var conflictCount int
+		var notActiveCount int
+		var notFoundCount int
 
 		for i := 0; i < 5; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				err := svc.RevokeSession(ctx, session.UUID)
-				errChan <- err
+
+				mu.Lock()
+				defer mu.Unlock()
+				if err == nil {
+					successCount++
+				} else if errors.Is(err, ErrConflict) {
+					conflictCount++
+				} else if errors.Is(err, ErrInvalidSession) && strings.Contains(err.Error(), "session is not active") {
+					notActiveCount++
+				} else if errors.Is(err, ErrNotFound) {
+					notFoundCount++
+				} else {
+					t.Errorf("Unexpected error: %v", err)
+				}
 			}()
 		}
 
 		wg.Wait()
-		close(errChan)
 
-		// Only one revocation should succeed, others may fail
-		var successCount int
-		for err := range errChan {
-			if err == nil {
-				successCount++
-			} else {
-				assert.Contains(t, err.Error(), "session not found")
-			}
-		}
+		t.Logf("Results - Success: %d, Conflict: %d, NotActive: %d, NotFound: %d",
+			successCount, conflictCount, notActiveCount, notFoundCount)
+
+		// Verify only one successful revocation
 		assert.Equal(t, 1, successCount)
+		// The sum of all other cases should be 4
+		assert.Equal(t, 4, conflictCount+notActiveCount+notFoundCount)
+
+		// Verify session was actually revoked
+		updatedSession, err := svc.GetSession(ctx, session.UUID)
+		require.NoError(t, err)
+		assert.Equal(t, SessionStatusRevoked, updatedSession.Status)
 	})
 
 	t.Run("concurrent session data operations", func(t *testing.T) {
