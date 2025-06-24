@@ -55,7 +55,7 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (66.5%)</option>
+				<option value="file0">github.com/gourdian25/gourdiansession/gourdiansession.go (67.9%)</option>
 				
 				<option value="file1">github.com/gourdian25/gourdiansession/gourdiansessionRedisRepositoryImp.go (79.5%)</option>
 				
@@ -472,12 +472,13 @@ func (r *GourdianSessionMongoRepository) GetSessionsByUserID(ctx context.Context
         <span class="cov8" title="1">return validSessions, nil</span>
 }
 
-func (r *GourdianSessionMongoRepository) GetActiveSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error) <span class="cov0" title="0">{
+func (r *GourdianSessionMongoRepository) GetActiveSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error) <span class="cov8" title="1">{
+        now := time.Now()
         filter := bson.M{
-                "userId":    userID,
-                "status":    SessionStatusActive,
-                "deletedAt": bson.M{"$exists": false},
-                "expiresAt": bson.M{"$gt": time.Now()},
+                "user_id":    userID, // Make sure this matches the field name in your documents
+                "status":     SessionStatusActive,
+                "deleted_at": nil,                // Using the actual field name from your struct tag
+                "expires_at": bson.M{"$gt": now}, // Using the actual field name from your struct tag
         }
 
         cursor, err := r.sessionsCollection.Find(ctx, filter)
@@ -485,12 +486,12 @@ func (r *GourdianSessionMongoRepository) GetActiveSessionsByUserID(ctx context.C
                 return nil, fmt.Errorf("failed to find active sessions: %w", err)
         }</span>
 
-        <span class="cov0" title="0">var sessions []*GourdianSessionType
+        <span class="cov8" title="1">var sessions []*GourdianSessionType
         if err = cursor.All(ctx, &amp;sessions); err != nil </span><span class="cov0" title="0">{
                 return nil, fmt.Errorf("failed to decode active sessions: %w", err)
         }</span>
 
-        <span class="cov0" title="0">return sessions, nil</span>
+        <span class="cov8" title="1">return sessions, nil</span>
 }
 
 func (r *GourdianSessionMongoRepository) RevokeUserSessions(ctx context.Context, userID uuid.UUID) error <span class="cov8" title="1">{

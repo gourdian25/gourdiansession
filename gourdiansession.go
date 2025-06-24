@@ -400,11 +400,12 @@ func (r *GourdianSessionMongoRepository) GetSessionsByUserID(ctx context.Context
 }
 
 func (r *GourdianSessionMongoRepository) GetActiveSessionsByUserID(ctx context.Context, userID uuid.UUID) ([]*GourdianSessionType, error) {
+	now := time.Now()
 	filter := bson.M{
-		"userId":    userID,
-		"status":    SessionStatusActive,
-		"deletedAt": bson.M{"$exists": false},
-		"expiresAt": bson.M{"$gt": time.Now()},
+		"user_id":    userID, // Make sure this matches the field name in your documents
+		"status":     SessionStatusActive,
+		"deleted_at": nil,                // Using the actual field name from your struct tag
+		"expires_at": bson.M{"$gt": now}, // Using the actual field name from your struct tag
 	}
 
 	cursor, err := r.sessionsCollection.Find(ctx, filter)
