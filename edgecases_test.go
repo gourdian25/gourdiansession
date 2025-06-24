@@ -3,6 +3,7 @@ package gourdiansession
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -187,85 +188,126 @@ func TestSessionService_ConfigurationEdgeCases(t *testing.T) {
 	})
 }
 
-// func TestRedisRepository_ValidateSessionByID_EdgeCases(t *testing.T) {
-// 	client := setupTestRedis()
-// 	defer cleanupTestRedis(t, client)
+func TestRedisRepository_ValidateSessionByID_EdgeCases(t *testing.T) {
+	client := setupTestRedis()
+	defer cleanupTestRedis(t, client)
 
-// 	repo := NewGurdianRedisSessionRepository(client)
-// 	ctx := context.Background()
+	repo := NewGurdianRedisSessionRepository(client)
+	ctx := context.Background()
 
-// 	t.Run("expired session marking", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			1*time.Millisecond, // Very short expiration
-// 		)
+	t.Run("expired session marking", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			1*time.Millisecond, // Very short expiration
+		)
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
 
-// 		// Wait for expiration
-// 		time.Sleep(10 * time.Millisecond)
+		// Wait for expiration
+		time.Sleep(10 * time.Millisecond)
 
-// 		_, err = repo.ValidateSessionByID(ctx, session.UUID)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session has expired")
+		_, err = repo.ValidateSessionByID(ctx, session.UUID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session has expired")
 
-// 		// Verify session was marked as expired
-// 		stored, err := repo.GetSessionByID(ctx, session.UUID)
-// 		require.NoError(t, err)
-// 		assert.Equal(t, SessionStatusExpired, stored.Status)
-// 	})
+		// Verify session was marked as expired
+		stored, err := repo.GetSessionByID(ctx, session.UUID)
+		require.NoError(t, err)
+		assert.Equal(t, SessionStatusExpired, stored.Status)
+	})
 
-// 	t.Run("failed status update on expiration", func(t *testing.T) {
-// 		// Create a session that will expire
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			1*time.Millisecond,
-// 		)
+	t.Run("failed status update on expiration", func(t *testing.T) {
+		// Create a session that will expire
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			1*time.Millisecond,
+		)
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
 
-// 		// Wait for expiration
-// 		time.Sleep(10 * time.Millisecond)
+		// Wait for expiration
+		time.Sleep(10 * time.Millisecond)
 
-// 		// Delete the session to force update failure
-// 		err = repo.DeleteSession(ctx, session.UUID)
-// 		require.NoError(t, err)
+		// Delete the session to force update failure
+		err = repo.DeleteSession(ctx, session.UUID)
+		require.NoError(t, err)
 
-// 		// Validation should still fail with expired error
-// 		_, err = repo.ValidateSessionByID(ctx, session.UUID)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session not found")
-// 	})
+		// Validation should still fail with expired error
+		_, err = repo.ValidateSessionByID(ctx, session.UUID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session not found")
+	})
 
-// 	t.Run("session with zero expiration time", func(t *testing.T) {
-// 		session := NewGurdianSessionObject(
-// 			uuid.New(),
-// 			"testuser",
-// 			nil,
-// 			nil,
-// 			[]Role{},
-// 			0, // Zero expiration
-// 		)
+	t.Run("session with zero expiration time", func(t *testing.T) {
+		session := NewGurdianSessionObject(
+			uuid.New(),
+			"testuser",
+			nil,
+			nil,
+			[]Role{},
+			0, // Zero expiration
+		)
 
-// 		_, err := repo.CreateSession(ctx, session)
-// 		require.NoError(t, err)
+		_, err := repo.CreateSession(ctx, session)
+		require.NoError(t, err)
 
-// 		// Should be treated as already expired
-// 		_, err = repo.ValidateSessionByID(ctx, session.UUID)
-// 		require.Error(t, err)
-// 		assert.Contains(t, err.Error(), "session has expired")
-// 	})
-// }
+		// Should be treated as already expired
+		_, err = repo.ValidateSessionByID(ctx, session.UUID)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "session has expired")
+	})
+
+	t.Run("concurrent session revocation", func(t *testing.T) {
+		session, _ := createTestSession(t, svc)
+		var wg sync.WaitGroup
+		resultChan := make(chan struct {
+			err     error
+			revoked bool
+		}, 5)
+
+		for i := 0; i < 5; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				err := svc.RevokeSession(ctx, session.UUID)
+
+				// Check if session was actually revoked
+				s, _ := svc.GetSession(ctx, session.UUID)
+				revoked := s != nil && s.Status == SessionStatusRevoked
+
+				resultChan <- struct {
+					err     error
+					revoked bool
+				}{err, revoked}
+			}()
+		}
+
+		wg.Wait()
+		close(resultChan)
+
+		var successCount int
+		for res := range resultChan {
+			if res.err == nil && res.revoked {
+				successCount++
+			} else if res.err != nil {
+				assert.Contains(t, res.err.Error(), "session not found")
+			}
+		}
+
+		// We should have exactly one successful revocation that actually changed the status
+		assert.Equal(t, 1, successCount)
+	})
+}
 
 // func TestSessionService_EdgeCases(t *testing.T) {
 // 	client := setupTestRedis()
